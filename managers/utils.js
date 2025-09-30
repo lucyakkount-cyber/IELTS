@@ -120,3 +120,64 @@ export class Utils {
     }
   }
 }
+
+// Add this PARALLEL PROCESSING function at the end
+export async function processMessageOptimized(message, aiClient, audioManager, animationManager, vrm, config, audioElement) {
+  try {
+    console.log('Processing message:', message)
+
+    // STEP 1: Get AI response
+    console.log('Getting AI response...')
+    const aiResponse = await aiClient.chatWithAI(message, config.getSystemPrompt())
+    console.log('AI response received')
+
+    // STEP 2: PARALLEL - TTS + Animation Plan
+    console.log('Starting parallel: TTS + Animation Plan')
+
+    const [audioBlob, animationPlan] = await Promise.all([
+      audioManager.generateTTS(aiResponse, config.config).catch(err => {
+        console.error('TTS failed:', err)
+        return null
+      }),
+
+      aiClient.generateAnimationPlan(aiResponse).catch(err => {
+        console.error('Animation plan failed:', err)
+        return []
+      })
+    ])
+
+    console.log('Parallel processing complete')
+
+    // STEP 3: Play audio and get duration
+    let audioDuration = 0
+    if (audioBlob) {
+      audioDuration = await audioManager.playAudioBlob(audioBlob, audioElement)
+      audioManager.setupMouthSync(audioElement, vrm)
+    }
+
+    // STEP 4: Scale animation timings
+    if (animationPlan.length > 0 && audioDuration > 0) {
+      const totalPlanDuration = animationPlan.reduce((sum, step) => sum + step.duration, 0)
+
+      if (totalPlanDuration > 0) {
+        const scale = (audioDuration * 1000) / totalPlanDuration
+        animationPlan.forEach(step => {
+          step.duration = Math.round(step.duration * scale)
+        })
+        console.log('Animation timings scaled by', scale.toFixed(2))
+      }
+    }
+
+    // STEP 5: Play animations
+    if (animationManager && animationPlan.length > 0) {
+      await animationManager.playAnimationSequence(animationPlan)
+    }
+
+    console.log('Message processing complete')
+    return aiResponse
+
+  } catch (error) {
+    console.error('Message processing error:', error)
+    throw error
+  }
+}

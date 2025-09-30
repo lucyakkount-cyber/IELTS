@@ -1,4 +1,4 @@
-// audioManager.js - Handles audio context, TTS, and voice synthesis
+// audioManager.js - Enhanced with fixes
 import axios from 'axios'
 
 export class AudioManager {
@@ -8,6 +8,7 @@ export class AudioManager {
     this.sourceNode = null
     this.mouthRaf = null
     this.isInitialized = false
+    this.currentAudio = null
   }
 
   async initialize() {
@@ -16,7 +17,7 @@ export class AudioManager {
       this.isInitialized = true
       console.log('AudioManager initialized')
     } catch (error) {
-      console.error('Failed to initialize AudioManager:', error)
+      console.error('AudioManager init failed:', error)
     }
   }
 
@@ -25,14 +26,14 @@ export class AudioManager {
       try {
         await this.audioCtx.resume()
       } catch (error) {
-        console.error('Failed to resume audio context:', error)
+        console.error('Audio context resume failed:', error)
       }
     }
   }
 
   async generateTTS(text, config) {
     try {
-      const ttsUrl = ' https://a36a9fe4f0cd.ngrok-free.app/tts'
+      const ttsUrl = 'https://a36a9fe4f0cd.ngrok-free.app/tts' // FIXED: removed space
       const payload = {
         text,
         ref_audio_path: config.sovits_ping_config?.ref_audio_path,
@@ -43,12 +44,15 @@ export class AudioManager {
         streaming_mode: false,
       }
 
+      console.log('Generating TTS...')
       const response = await axios.post(ttsUrl, payload, {
         responseType: 'arraybuffer',
         headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
       })
 
       const blob = new Blob([response.data], { type: 'audio/wav' })
+      console.log('TTS generated:', blob.size, 'bytes')
       return blob
     } catch (error) {
       console.error('TTS generation error:', error)
@@ -60,26 +64,30 @@ export class AudioManager {
     if (!blob || !audioElement) return 0
 
     try {
+      if (this.currentAudio) {
+        this.currentAudio.pause()
+        this.currentAudio.src = ''
+      }
+
       audioElement.pause()
-    } catch {
-      /* ignore */
-    }
+      audioElement.src = ''
+      audioElement.load()
 
-    audioElement.src = ''
-    audioElement.load()
+      await this.resumeContext()
 
-    await this.resumeContext()
+      const url = URL.createObjectURL(blob)
+      audioElement.src = url
+      this.currentAudio = audioElement
 
-    const url = URL.createObjectURL(blob)
-    audioElement.src = url
+      await new Promise((resolve, reject) => {
+        audioElement.onloadedmetadata = resolve
+        audioElement.onerror = reject
+        setTimeout(() => reject(new Error('Audio load timeout')), 5000)
+      })
 
-    const playPromise = new Promise((resolve) => {
-      audioElement.onplay = () => resolve()
-    })
-
-    try {
       await audioElement.play()
-      await playPromise
+      console.log('Playing audio, duration:', audioElement.duration, 's')
+
       return audioElement.duration
     } catch (error) {
       console.error('Audio play failed:', error)
@@ -95,7 +103,12 @@ export class AudioManager {
     }
 
     if (!this.sourceNode) {
-      this.sourceNode = this.audioCtx.createMediaElementSource(audioElement)
+      try {
+        this.sourceNode = this.audioCtx.createMediaElementSource(audioElement)
+      } catch (error) {
+        console.warn('Audio source already exists')
+        return
+      }
     }
 
     if (this.analyser) {
@@ -113,7 +126,7 @@ export class AudioManager {
     try {
       this.sourceNode.disconnect()
     } catch {
-      /* ignore */
+      // Ignore
     }
 
     this.sourceNode.connect(this.analyser)
@@ -123,10 +136,15 @@ export class AudioManager {
     let prevHighFreq = 0
 
     const tick = () => {
+      if (audioElement.paused || audioElement.ended) {
+        this.resetMouth(vrm)
+        this.mouthRaf = null
+        return
+      }
+
       this.analyser.getByteTimeDomainData(dataArray)
       this.analyser.getByteFrequencyData(frequencyData)
 
-      // Calculate RMS energy
       let sumSquares = 0
       for (let i = 0; i < bufferLength; i++) {
         const val = (dataArray[i] - 128) / 128
@@ -134,64 +152,58 @@ export class AudioManager {
       }
       const rms = Math.sqrt(sumSquares / bufferLength)
 
-      // Calculate high frequency content
       let highFreqSum = 0
-      for (let i = Math.floor(frequencyData.length * 0.3); i < frequencyData.length; i++) {
+      const startIdx = Math.floor(frequencyData.length * 0.3)
+      for (let i = startIdx; i < frequencyData.length; i++) {
         highFreqSum += frequencyData[i]
       }
       const highFreq = highFreqSum / (frequencyData.length * 0.7) / 255
 
-      // Smooth values
       const smoothed = prevEnergy * 0.7 + rms * 0.3
       const smoothedHigh = prevHighFreq * 0.8 + highFreq * 0.2
       prevEnergy = smoothed
       prevHighFreq = smoothedHigh
 
-      // Map to mouth shapes
-      const mouthOpen = Math.min(Math.max(smoothed * 8, 0), 1)
-      const mouthWide = Math.min(smoothedHigh * 2, 1)
-      const mouthSmile = Math.min(smoothedHigh * 1.5, 0.5)
+      const mouthOpen = Math.min(Math.max(smoothed * 10, 0), 1)
+      const mouthWide = Math.min(smoothedHigh * 2.5, 1)
+      const mouthSmile = Math.min(smoothedHigh * 1.8, 0.6)
 
-      // Apply smoothing to existing values
       const curAA = vrm.expressionManager.getValue('aa') || 0
       const curEE = vrm.expressionManager.getValue('ee') || 0
       const curOH = vrm.expressionManager.getValue('oh') || 0
       const curSmile = vrm.expressionManager.getValue('happy') || 0
 
-      vrm.expressionManager.setValue('aa', curAA + (mouthOpen - curAA) * 0.3)
-      vrm.expressionManager.setValue('ee', curEE + (mouthWide - curEE) * 0.25)
-      vrm.expressionManager.setValue('oh', curOH + (mouthOpen * 0.6 - curOH) * 0.2)
-      vrm.expressionManager.setValue('happy', curSmile + (mouthSmile - curSmile) * 0.1)
+      vrm.expressionManager.setValue('aa', curAA + (mouthOpen - curAA) * 0.35)
+      vrm.expressionManager.setValue('ee', curEE + (mouthWide - curEE) * 0.3)
+      vrm.expressionManager.setValue('oh', curOH + (mouthOpen * 0.7 - curOH) * 0.25)
+      vrm.expressionManager.setValue('happy', curSmile + (mouthSmile - curSmile) * 0.15)
       vrm.expressionManager.update()
 
-      if (!audioElement.paused && !audioElement.ended) {
-        this.mouthRaf = requestAnimationFrame(tick)
-      } else {
-        this.resetMouth(vrm)
-        this.mouthRaf = null
-      }
+      this.mouthRaf = requestAnimationFrame(tick)
     }
 
     tick()
   }
 
   resetMouth(vrm) {
-    const resetMouth = () => {
+    if (!vrm?.expressionManager) return
+
+    const resetAnim = () => {
       const aa = vrm.expressionManager.getValue('aa') || 0
       const ee = vrm.expressionManager.getValue('ee') || 0
       const oh = vrm.expressionManager.getValue('oh') || 0
       const smile = vrm.expressionManager.getValue('happy') || 0
 
       if (aa > 0.01 || ee > 0.01 || oh > 0.01 || smile > 0.01) {
-        vrm.expressionManager.setValue('aa', Math.max(aa * 0.9, 0))
-        vrm.expressionManager.setValue('ee', Math.max(ee * 0.9, 0))
-        vrm.expressionManager.setValue('oh', Math.max(oh * 0.9, 0))
-        vrm.expressionManager.setValue('happy', Math.max(smile * 0.95, 0))
+        vrm.expressionManager.setValue('aa', Math.max(aa * 0.85, 0))
+        vrm.expressionManager.setValue('ee', Math.max(ee * 0.85, 0))
+        vrm.expressionManager.setValue('oh', Math.max(oh * 0.85, 0))
+        vrm.expressionManager.setValue('happy', Math.max(smile * 0.9, 0))
         vrm.expressionManager.update()
-        requestAnimationFrame(resetMouth)
+        requestAnimationFrame(resetAnim)
       }
     }
-    resetMouth()
+    resetAnim()
   }
 
   cleanup() {
@@ -204,11 +216,16 @@ export class AudioManager {
       this.sourceNode?.disconnect()
       this.analyser?.disconnect()
     } catch {
-      /* ignore */
+      // Ignore
     }
 
     this.sourceNode = null
     this.analyser = null
+
+    if (this.currentAudio) {
+      this.currentAudio.pause()
+      this.currentAudio = null
+    }
 
     if (this.audioCtx) {
       this.audioCtx.close()

@@ -321,75 +321,25 @@ async function sendMessage() {
     userInput.value = ''
     autoResize()
 
-    console.log('📤 Sending message:', message)
+    console.log('Sending message:', message)
 
-    // Get AI response first, then generate animation plan based on response
-    const aiResponse = await aiClient.chatWithAI(message, configManager.getSystemPrompt())
-    console.log('🤖 AI Response:', aiResponse)
+    // USE OPTIMIZED PARALLEL PROCESSING
+    const { processMessageOptimized } = await import('../managers/utils.js')
 
-    // Generate animation plan based on the AI response for better animations
-    const animationPlan = await aiClient.generateAnimationPlan(aiResponse)
-    console.log('🎭 Animation Plan:', animationPlan)
-
-    // Update animation queue for debug display
-    animationQueue.value = animationPlan
-
-    // Generate TTS audio
-    const audioBlob = await audioManager.generateTTS(aiResponse, configManager.config)
-    let audioDuration = 0
-
-    if (audioBlob) {
-      audioDuration = await audioManager.playAudioBlob(audioBlob, audioRef.value)
-      // Setup mouth sync
-      audioManager.setupMouthSync(audioRef.value, vrm)
-    }
-
-    // Scale animation timings to match audio duration
-    if (animationPlan.length > 0 && audioDuration > 0) {
-      const totalPlanDuration = animationPlan.reduce((sum, step) => sum + step.duration, 0)
-      if (totalPlanDuration > 0) {
-        const scale = (audioDuration * 1000) / totalPlanDuration
-        animationPlan.forEach(step => {
-          step.duration = Math.round(step.duration * scale)
-        })
-      }
-    }
-
-    // Play animations with reactive state updates
-    if (animationManager && animationPlan.length > 0) {
-      // Start animation sequence and update debug info
-      const playAnimationWithDebug = async () => {
-        for (let i = 0; i < animationPlan.length; i++) {
-          const step = animationPlan[i]
-
-          // Update debug display
-          currentExpression.value = step.expression || 'neutral'
-          currentGesture.value = step.gesture || 'none'
-
-          // Wait for this step's duration
-          if (i < animationPlan.length - 1) {
-            await Utils.delay(step.duration)
-          }
-        }
-      }
-
-      // Run both animation and debug updates in parallel
-      await Promise.all([
-        animationManager.playAnimationSequence(animationPlan),
-        playAnimationWithDebug()
-      ])
-    }
-
-    // Clear animation queue and reset debug info
-    animationQueue.value = []
-    currentExpression.value = 'neutral'
-    currentGesture.value = 'none'
+    await processMessageOptimized(
+      message,
+      aiClient,
+      audioManager,
+      animationManager,
+      vrm,
+      configManager,
+      audioRef.value
+    )
 
   } catch (error) {
-    console.error('❌ Error processing message:', error)
+    console.error('Error processing message:', error)
     systemStatus.value = `Error: ${error.message}`
 
-    // Auto-recover after error
     setTimeout(() => {
       if (systemReady.value) {
         systemStatus.value = 'Ready'
