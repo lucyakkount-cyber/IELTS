@@ -4,7 +4,7 @@ import axios from 'axios'
 export function useTTS(charConfig) {
   async function sovitsGen(text, config) {
     try {
-      const ttsUrl = ' https://a36a9fe4f0cd.ngrok-free.app/tts'
+      const ttsUrl = '   http://127.0.0.1:9880/tts'
       const payload = {
         text,
         ref_audio_path: config.sovits_ping_config?.ref_audio_path,

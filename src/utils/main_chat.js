@@ -16,7 +16,7 @@ try {
 
 // === SoVITS function ===
 export async function sovitsGen(inText, outputPath = 'output.wav') {
-  const url = ' https://a36a9fe4f0cd.ngrok-free.app/tts'
+  const url = '   http://127.0.0.1:9880/tts'
 
   const refAudioPath = charConfig?.sovits_ping_config?.ref_audio_path
   if (!refAudioPath || !fs.existsSync(refAudioPath)) {

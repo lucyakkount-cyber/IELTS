@@ -122,6 +122,8 @@ export class Utils {
 }
 
 // Add this PARALLEL PROCESSING function at the end
+// Replace processMessageOptimized in your managers/utils.js
+
 export async function processMessageOptimized(message, aiClient, audioManager, animationManager, vrm, config, audioElement) {
   try {
     console.log('Processing message:', message)
@@ -129,9 +131,9 @@ export async function processMessageOptimized(message, aiClient, audioManager, a
     // STEP 1: Get AI response
     console.log('Getting AI response...')
     const aiResponse = await aiClient.chatWithAI(message, config.getSystemPrompt())
-    console.log('AI response received')
+    console.log('AI response received:', aiResponse.substring(0, 50) + '...')
 
-    // STEP 2: PARALLEL - TTS + Animation Plan
+    // STEP 2: Generate TTS and Animation Plan in PARALLEL
     console.log('Starting parallel: TTS + Animation Plan')
 
     const [audioBlob, animationPlan] = await Promise.all([
@@ -147,15 +149,28 @@ export async function processMessageOptimized(message, aiClient, audioManager, a
     ])
 
     console.log('Parallel processing complete')
+    console.log('Audio blob:', audioBlob ? 'Ready' : 'Failed')
+    console.log('Animation plan:', animationPlan.length, 'steps')
 
-    // STEP 3: Play audio and get duration
-    let audioDuration = 0
-    if (audioBlob) {
-      audioDuration = await audioManager.playAudioBlob(audioBlob, audioElement)
-      audioManager.setupMouthSync(audioElement, vrm)
+    if (!audioBlob) {
+      console.warn('No audio generated, skipping mouth sync')
+      return aiResponse
     }
 
-    // STEP 4: Scale animation timings
+    // STEP 3: Get audio duration FIRST (before playing)
+    const audioDuration = await new Promise((resolve) => {
+      const tempAudio = new Audio()
+      tempAudio.src = URL.createObjectURL(audioBlob)
+      tempAudio.onloadedmetadata = () => {
+        resolve(tempAudio.duration)
+        URL.revokeObjectURL(tempAudio.src)
+      }
+      tempAudio.onerror = () => resolve(0)
+    })
+
+    console.log('Audio duration:', audioDuration, 'seconds')
+
+    // STEP 4: Scale animation timings to match audio BEFORE playing
     if (animationPlan.length > 0 && audioDuration > 0) {
       const totalPlanDuration = animationPlan.reduce((sum, step) => sum + step.duration, 0)
 
@@ -165,13 +180,22 @@ export async function processMessageOptimized(message, aiClient, audioManager, a
           step.duration = Math.round(step.duration * scale)
         })
         console.log('Animation timings scaled by', scale.toFixed(2))
+        console.log('Scaled durations:', animationPlan.map(s => s.duration))
       }
     }
 
-    // STEP 5: Play animations
-    if (animationManager && animationPlan.length > 0) {
-      await animationManager.playAnimationSequence(animationPlan)
-    }
+    // STEP 5: Start BOTH audio and animations at the SAME time
+    console.log('Starting audio and animations together...')
+
+    const audioPromise = audioManager.playAudioBlob(audioBlob, audioElement)
+    audioManager.setupMouthSync(audioElement, vrm)
+
+    const animationPromise = animationManager && animationPlan.length > 0
+      ? animationManager.playAnimationSequence(animationPlan)
+      : Promise.resolve()
+
+    // Wait for BOTH to complete
+    await Promise.all([audioPromise, animationPromise])
 
     console.log('Message processing complete')
     return aiResponse

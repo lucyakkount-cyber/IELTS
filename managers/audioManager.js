@@ -33,7 +33,7 @@ export class AudioManager {
 
   async generateTTS(text, config) {
     try {
-      const ttsUrl = 'https://a36a9fe4f0cd.ngrok-free.app/tts' // FIXED: removed space
+      const ttsUrl = '  http://127.0.0.1:9880/tts' // FIXED: removed space
       const payload = {
         text,
         ref_audio_path: config.sovits_ping_config?.ref_audio_path,
@@ -48,7 +48,7 @@ export class AudioManager {
       const response = await axios.post(ttsUrl, payload, {
         responseType: 'arraybuffer',
         headers: { 'Content-Type': 'application/json' },
-        timeout: 30000
+        timeout: 1500000,
       })
 
       const blob = new Blob([response.data], { type: 'audio/wav' })
@@ -95,116 +95,120 @@ export class AudioManager {
     }
   }
 
-  setupMouthSync(audioElement, vrm) {
-    if (!vrm?.expressionManager || !this.audioCtx || !audioElement) return
+ // Replace the setupMouthSync function in your managers/audioManager.js
 
-    if (this.mouthRaf) {
-      cancelAnimationFrame(this.mouthRaf)
-    }
+setupMouthSync(audioElement, vrm) {
+  if (!vrm?.expressionManager || !this.audioCtx || !audioElement) return
 
-    if (!this.sourceNode) {
-      try {
-        this.sourceNode = this.audioCtx.createMediaElementSource(audioElement)
-      } catch (error) {
-        console.warn('Audio source already exists')
-        return
-      }
-    }
+  if (this.mouthRaf) {
+    cancelAnimationFrame(this.mouthRaf)
+  }
 
-    if (this.analyser) {
-      this.analyser.disconnect()
-    }
-
-    this.analyser = this.audioCtx.createAnalyser()
-    this.analyser.fftSize = 2048
-    this.analyser.smoothingTimeConstant = 0.3
-
-    const bufferLength = this.analyser.fftSize
-    const dataArray = new Uint8Array(bufferLength)
-    const frequencyData = new Uint8Array(this.analyser.frequencyBinCount)
-
+  if (!this.sourceNode) {
     try {
-      this.sourceNode.disconnect()
-    } catch {
-      // Ignore
+      this.sourceNode = this.audioCtx.createMediaElementSource(audioElement)
+    } catch (error) {
+      console.warn('Audio source already exists')
+      return
+    }
+  }
+
+  if (this.analyser) {
+    this.analyser.disconnect()
+  }
+
+  this.analyser = this.audioCtx.createAnalyser()
+  this.analyser.fftSize = 2048
+  this.analyser.smoothingTimeConstant = 0.3
+
+  const bufferLength = this.analyser.fftSize
+  const dataArray = new Uint8Array(bufferLength)
+  const frequencyData = new Uint8Array(this.analyser.frequencyBinCount)
+
+  try {
+    this.sourceNode.disconnect()
+  } catch {
+    // Ignore
+  }
+
+  this.sourceNode.connect(this.analyser)
+  this.analyser.connect(this.audioCtx.destination)
+
+  let prevEnergy = 0
+  let prevHighFreq = 0
+
+  const tick = () => {
+    if (audioElement.paused || audioElement.ended) {
+      this.resetMouth(vrm)
+      this.mouthRaf = null
+      return
     }
 
-    this.sourceNode.connect(this.analyser)
-    this.analyser.connect(this.audioCtx.destination)
+    this.analyser.getByteTimeDomainData(dataArray)
+    this.analyser.getByteFrequencyData(frequencyData)
 
-    let prevEnergy = 0
-    let prevHighFreq = 0
+    let sumSquares = 0
+    for (let i = 0; i < bufferLength; i++) {
+      const val = (dataArray[i] - 128) / 128
+      sumSquares += val * val
+    }
+    const rms = Math.sqrt(sumSquares / bufferLength)
 
-    const tick = () => {
-      if (audioElement.paused || audioElement.ended) {
-        this.resetMouth(vrm)
-        this.mouthRaf = null
-        return
-      }
+    let highFreqSum = 0
+    const startIdx = Math.floor(frequencyData.length * 0.3)
+    for (let i = startIdx; i < frequencyData.length; i++) {
+      highFreqSum += frequencyData[i]
+    }
+    const highFreq = highFreqSum / (frequencyData.length * 0.7) / 255
 
-      this.analyser.getByteTimeDomainData(dataArray)
-      this.analyser.getByteFrequencyData(frequencyData)
+    const smoothed = prevEnergy * 0.7 + rms * 0.3
+    const smoothedHigh = prevHighFreq * 0.8 + highFreq * 0.2
+    prevEnergy = smoothed
+    prevHighFreq = smoothedHigh
 
-      let sumSquares = 0
-      for (let i = 0; i < bufferLength; i++) {
-        const val = (dataArray[i] - 128) / 128
-        sumSquares += val * val
-      }
-      const rms = Math.sqrt(sumSquares / bufferLength)
+    // REDUCED values for smaller, cuter mouth opening
+    const mouthOpen = Math.min(Math.max(smoothed * 5, 0), 0.5)  // Max 0.5 (was 1.0)
+    const mouthWide = Math.min(smoothedHigh * 1.2, 0.4)         // Max 0.4 (was 1.0)
+    const mouthSmile = Math.min(smoothedHigh * 0.8, 0.25)       // Max 0.25 (was 0.6)
 
-      let highFreqSum = 0
-      const startIdx = Math.floor(frequencyData.length * 0.3)
-      for (let i = startIdx; i < frequencyData.length; i++) {
-        highFreqSum += frequencyData[i]
-      }
-      const highFreq = highFreqSum / (frequencyData.length * 0.7) / 255
+    const curAA = vrm.expressionManager.getValue('aa') || 0
+    const curEE = vrm.expressionManager.getValue('ee') || 0
+    const curOH = vrm.expressionManager.getValue('oh') || 0
+    const curSmile = vrm.expressionManager.getValue('happy') || 0
 
-      const smoothed = prevEnergy * 0.7 + rms * 0.3
-      const smoothedHigh = prevHighFreq * 0.8 + highFreq * 0.2
-      prevEnergy = smoothed
-      prevHighFreq = smoothedHigh
+    // Smooth interpolation - slower for more natural movement
+    vrm.expressionManager.setValue('aa', curAA + (mouthOpen - curAA) * 0.25)
+    vrm.expressionManager.setValue('ee', curEE + (mouthWide - curEE) * 0.2)
+    vrm.expressionManager.setValue('oh', curOH + (mouthOpen * 0.5 - curOH) * 0.2)
+    vrm.expressionManager.setValue('happy', curSmile + (mouthSmile - curSmile) * 0.1)
+    vrm.expressionManager.update()
 
-      const mouthOpen = Math.min(Math.max(smoothed * 10, 0), 1)
-      const mouthWide = Math.min(smoothedHigh * 2.5, 1)
-      const mouthSmile = Math.min(smoothedHigh * 1.8, 0.6)
+    this.mouthRaf = requestAnimationFrame(tick)
+  }
 
-      const curAA = vrm.expressionManager.getValue('aa') || 0
-      const curEE = vrm.expressionManager.getValue('ee') || 0
-      const curOH = vrm.expressionManager.getValue('oh') || 0
-      const curSmile = vrm.expressionManager.getValue('happy') || 0
+  tick()
+}
 
-      vrm.expressionManager.setValue('aa', curAA + (mouthOpen - curAA) * 0.35)
-      vrm.expressionManager.setValue('ee', curEE + (mouthWide - curEE) * 0.3)
-      vrm.expressionManager.setValue('oh', curOH + (mouthOpen * 0.7 - curOH) * 0.25)
-      vrm.expressionManager.setValue('happy', curSmile + (mouthSmile - curSmile) * 0.15)
+resetMouth(vrm) {
+  if (!vrm?.expressionManager) return
+
+  const resetAnim = () => {
+    const aa = vrm.expressionManager.getValue('aa') || 0
+    const ee = vrm.expressionManager.getValue('ee') || 0
+    const oh = vrm.expressionManager.getValue('oh') || 0
+    const smile = vrm.expressionManager.getValue('happy') || 0
+
+    if (aa > 0.01 || ee > 0.01 || oh > 0.01 || smile > 0.01) {
+      vrm.expressionManager.setValue('aa', Math.max(aa * 0.85, 0))
+      vrm.expressionManager.setValue('ee', Math.max(ee * 0.85, 0))
+      vrm.expressionManager.setValue('oh', Math.max(oh * 0.85, 0))
+      vrm.expressionManager.setValue('happy', Math.max(smile * 0.9, 0))
       vrm.expressionManager.update()
-
-      this.mouthRaf = requestAnimationFrame(tick)
+      requestAnimationFrame(resetAnim)
     }
-
-    tick()
   }
-
-  resetMouth(vrm) {
-    if (!vrm?.expressionManager) return
-
-    const resetAnim = () => {
-      const aa = vrm.expressionManager.getValue('aa') || 0
-      const ee = vrm.expressionManager.getValue('ee') || 0
-      const oh = vrm.expressionManager.getValue('oh') || 0
-      const smile = vrm.expressionManager.getValue('happy') || 0
-
-      if (aa > 0.01 || ee > 0.01 || oh > 0.01 || smile > 0.01) {
-        vrm.expressionManager.setValue('aa', Math.max(aa * 0.85, 0))
-        vrm.expressionManager.setValue('ee', Math.max(ee * 0.85, 0))
-        vrm.expressionManager.setValue('oh', Math.max(oh * 0.85, 0))
-        vrm.expressionManager.setValue('happy', Math.max(smile * 0.9, 0))
-        vrm.expressionManager.update()
-        requestAnimationFrame(resetAnim)
-      }
-    }
-    resetAnim()
-  }
+  resetAnim()
+}
 
   cleanup() {
     if (this.mouthRaf) {

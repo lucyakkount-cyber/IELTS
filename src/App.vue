@@ -201,6 +201,8 @@ async function initializeManagers() {
   }
 }
 
+// Replace the loadVRMModel function in your App.vue with this:
+
 async function loadVRMModel() {
   try {
     const vrmConfig = configManager.getVRMConfig()
@@ -212,20 +214,18 @@ async function loadVRMModel() {
     // Initialize animation manager
     animationManager = new AnimationManager(vrm)
 
-    // Load default animations
+    // Load default animations (gestures only, no idle FBX)
     const animations = await vrmLoader.loadDefaultAnimations(vrm)
 
-    if (animations.idle) {
-      animationManager.setIdleAnimation(animations.idle)
-      animationManager.startIdleAnimation()
-    }
-
-    // Set gesture animations
+    // Set gesture animations if loaded
     Object.entries(animations).forEach(([name, animation]) => {
       if (name !== 'idle') {
         animationManager.setGestureAnimation(name, animation)
       }
     })
+
+    // CRITICAL: Start natural idle animations (wiggling, breathing, etc.)
+    animationManager.startNaturalIdle()
 
     // Add animation update to render loop
     sceneManager.addUpdateCallback((delta) => {
@@ -233,13 +233,10 @@ async function loadVRMModel() {
       animationManager?.update(delta)
     })
 
-    // Start blinking
-    animationManager.startBlinking()
-
-    console.log('✅ VRM model loaded and setup complete')
+    console.log('VRM model loaded and natural animations started')
 
   } catch (error) {
-    console.error('❌ Failed to load VRM model:', error)
+    console.error('Failed to load VRM model:', error)
     systemStatus.value = `Error loading VRM: ${error.message}`
     systemReady.value = false
   }
@@ -277,21 +274,15 @@ async function handleVRMFileDrop(file) {
       animationManager = new AnimationManager(vrm)
     }
 
-    // Reload animations for new model
-    const animations = await vrmLoader.loadDefaultAnimations(vrm)
+ // Load gesture animations only (no idle FBX)
+const animations = await vrmLoader.loadDefaultAnimations(vrm)
 
-    if (animations.idle) {
-      animationManager.setIdleAnimation(animations.idle)
-      animationManager.startIdleAnimation()
-    }
+Object.entries(animations).forEach(([name, animation]) => {
+  animationManager.setGestureAnimation(name, animation)
+})
 
-    Object.entries(animations).forEach(([name, animation]) => {
-      if (name !== 'idle') {
-        animationManager.setGestureAnimation(name, animation)
-      }
-    })
-
-    animationManager.startBlinking()
+// START WIGGLING AND NATURAL ANIMATIONS
+animationManager.startNaturalIdle()
 
     systemStatus.value = 'VRM loaded successfully'
     systemReady.value = true

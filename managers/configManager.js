@@ -66,7 +66,7 @@ export class ConfigManager {
         ],
       },
       audio_config: {
-        tts_url: ' https://a36a9fe4f0cd.ngrok-free.app/tts',
+        tts_url: '   http://127.0.0.1:9880/tts',
         speech_recognition_lang: 'en-US',
         audio_context_options: {
           sampleRate: 44100,
@@ -154,7 +154,7 @@ export class ConfigManager {
 
   getAudioConfig() {
     return this.get('audio_config', {
-      tts_url: ' https://a36a9fe4f0cd.ngrok-free.app/tts',
+      tts_url: '   http://127.0.0.1:9880/tts',
       speech_recognition_lang: 'en-US',
       audio_context_options: {
         sampleRate: 44100,
@@ -163,7 +163,7 @@ export class ConfigManager {
   }
 
   getTTSUrl() {
-    return this.get('audio_config.tts_url', ' https://a36a9fe4f0cd.ngrok-free.app/tts')
+    return this.get('audio_config.tts_url', '   http://127.0.0.1:9880/tts')
   }
 
   getSpeechRecognitionLang() {
