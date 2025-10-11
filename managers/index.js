@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG = {
     position: { x: 0, y: -2, z: -0.5 },
   },
   audio: {
-    ttsUrl: '   http://127.0.0.1:9880/tts',
+    ttsUrl: '   https://furnishings-durable-sessions-tenant.trycloudflare.com/tts',
     speechLang: 'en-US',
   },
   ai: {
