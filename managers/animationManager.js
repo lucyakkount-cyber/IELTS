@@ -74,28 +74,28 @@ export class AnimationManager {
 
     // ⚡ FIX: Using '/animations/' (Root) and '.fbx' (Actual file type)
     const files = [
-      { name: 'HappyIdle', path: 'dist/animations/HappyIdle.vrma', loop: true },
+      { name: 'HappyIdle', path: '/animations/HappyIdle.vrma', loop: true },
       // ✅ FIX 1: Map Talking to Idle so body breathes while mouth moves
 
-      { name: 'wave', path: 'dist/animations/Waving.vrma', loop: false },
+      { name: 'wave', path: '/animations/Waving.vrma', loop: false },
       // ✅ FIX 2: Macarena must LOOP
-      { name: 'Macarena_dance', path: 'dist/animations/MacarenaDance.vrma', loop: false },
-      { name: 'dance', path: 'dist/animations/HipHopDance.vrma', loop: false },
+      { name: 'Macarena_dance', path: '/animations/MacarenaDance.vrma', loop: false },
+      { name: 'dance', path: '/animations/HipHopDance.vrma', loop: false },
 
-      { name: 'clap', path: 'dist/animations/Clapping.vrma', loop: false },
-      { name: 'thumbs_up', path: 'dist/animations/ThumbsUp.vrma', loop: false },
-      { name: 'shrug', path: 'dist/animations/Shrugging.vrma', loop: false },
-      { name: 'pointing', path: 'dist/animations/Pointing.vrma', loop: false },
-      { name: 'laugh', path: 'dist/animations/Laughing.vrma', loop: false },
-      { name: 'salute', path: 'dist/animations/Salute.vrma', loop: false },
-      { name: 'angry', path: 'dist/animations/Angry.vrma', loop: false },
+      { name: 'clap', path: '/animations/Clapping.vrma', loop: false },
+      { name: 'thumbs_up', path: '/animations/ThumbsUp.vrma', loop: false },
+      { name: 'shrug', path: '/animations/Shrugging.vrma', loop: false },
+      { name: 'pointing', path: '/animations/Pointing.vrma', loop: false },
+      { name: 'laugh', path: '/animations/Laughing.vrma', loop: false },
+      { name: 'salute', path: '/animations/Salute.vrma', loop: false },
+      { name: 'angry', path: '/animations/Angry.vrma', loop: false },
 
       // Proxies
-      { name: 'backflip', path: 'dist/animations/BackFlip.vrma', loop: false },
-      { name: 'acknowledging', path: 'dist/animations/Acknowledging.vrma', loop: false },
-      { name: 'blow_kiss', path: 'dist/animations/BlowKiss.vrma', loop: false },
-      { name: 'bored', path: 'dist/animations/Bored.vrma', loop: false },
-      { name: 'looking_around', path: 'dist/animations/LookingAround.vrma', loop: false },
+      { name: 'backflip', path: '/animations/BackFlip.vrma', loop: false },
+      { name: 'acknowledging', path: '/animations/Acknowledging.vrma', loop: false },
+      { name: 'blow_kiss', path: '/animations/BlowKiss.vrma', loop: false },
+      { name: 'bored', path: '/animations/Bored.vrma', loop: false },
+      { name: 'looking_around', path: '/animations/LookingAround.vrma', loop: false },
     ]
 
     for (const file of files) {
