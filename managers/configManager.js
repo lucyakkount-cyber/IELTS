@@ -39,7 +39,8 @@ export class ConfigManager {
       OPENAI_API_KEY: import.meta.env.VITE_GEMINI_API_KEY || '',
       presets: {
         default: {
-          system_prompt: `You are a helpful AI assistant. You are friendly, enthusiastic, and enjoy helping users with their questions and tasks. Keep your responses conversational and engaging.`,
+          system_prompt: `You are a helpful AI assistant. You are friendly, enthusiastic, and enjoy helping users with their questions and tasks. Keep your responses conversational and engaging.
+          IMPORTANT: Never end the conversation unless explicitly told to. Keep listening.`,
         },
       },
       sovits_ping_config: {
@@ -49,7 +50,7 @@ export class ConfigManager {
         prompt_lang: 'en',
       },
       vrm_config: {
-        model_path: '/models/riko.vrm',
+        model_path: '/models/nature.vrm',
         scale: 2,
         position: { x: 0, y: -2, z: -0.5 },
         rotation: { x: 0, y: Math.PI, z: 0 },
@@ -127,7 +128,7 @@ export class ConfigManager {
   }
 
   getModel() {
-    return this.get('model', 'gemini-2.5-preview')
+    return this.get('model', 'models/gemini-2.5-flash-native-audio-preview-12-2025')
   }
 
   getSovitsConfig() {
@@ -141,7 +142,7 @@ export class ConfigManager {
 
   getVRMConfig() {
     return this.get('vrm_config', {
-      model_path: '/models/riko.vrm',
+      model_path: '/models/nature.vrm',
       scale: 2,
       position: { x: 0, y: -2, z: -0.5 },
       rotation: { x: 0, y: Math.PI, z: 0 },

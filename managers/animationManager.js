@@ -217,8 +217,23 @@ export class AnimationManager {
   }
 
   triggerNamedAnimation(name) {
-    if (this.actions[name]) this.play(name)
-    else console.warn(`⚠️ Animation ${name} not found.`)
+    // 1. Exact Match
+    if (this.actions[name]) {
+      this.play(name)
+      return
+    }
+
+    // 2. Case-Insensitive Search
+    const lowerName = name.toLowerCase()
+    const foundKey = Object.keys(this.actions).find((k) => k.toLowerCase() === lowerName)
+    if (foundKey) {
+      console.log(`⚠️ Animation Case Mismatch: '${name}' -> '${foundKey}'`)
+      this.play(foundKey)
+      return
+    }
+
+    // 3. Fallback / Ignore
+    console.warn(`⚠️ Animation '${name}' not found. Ignoring.`)
   }
 
   onAnimationFinished(e) {
@@ -277,6 +292,11 @@ export class AnimationManager {
     if (this.activeAction && !this.activeAction.loop && this.activeAction.isRunning()) return
     if (isSpeaking && this.currentState !== 'talking') this.play('Talking')
     else if (!isSpeaking && this.currentState === 'talking') this.play(this.mainIdle)
+  }
+
+  notifyInteraction() {
+    // Called when user interacts - optional happiness expression
+    this.setExpression('happy', 2.0)
   }
 
   cleanup() {

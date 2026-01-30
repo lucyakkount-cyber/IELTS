@@ -226,6 +226,8 @@ const loadingProgress = ref(0)
 const loadingTitle = ref('Loading VRM Chat System')
 const fps = ref(0)
 const toasts = ref([])
+const userName = ref(localStorage.getItem('vrm_user_name') || null)
+const userMemories = ref(JSON.parse(localStorage.getItem('vrm_user_memories') || '{}'))
 
 // --- Manager Instances ---
 let sceneManager = null
@@ -244,9 +246,31 @@ onMounted(async () => {
   startFPSCounter()
 
   window.addEventListener('keydown', (e) => {
+    // Debug Toggle
     if (e.key === 'd' && e.ctrlKey) {
       e.preventDefault()
       showDebug.value = !showDebug.value
+    }
+
+    // VRM Scaling (Shift + / -)
+    if (vrm && vrm.scene) {
+      const scaleStep = 0.1
+      if (e.shiftKey && (e.key === '+' || e.key === '=')) {
+        vrm.scene.scale.x += scaleStep
+        vrm.scene.scale.y += scaleStep
+        vrm.scene.scale.z += scaleStep
+        showToast('Scale Up', `Scale: ${vrm.scene.scale.x.toFixed(2)}`, 'info', 1000)
+      }
+      if (e.shiftKey && (e.key === '_' || e.key === '-')) {
+        vrm.scene.scale.x = Math.max(0.1, vrm.scene.scale.x - scaleStep)
+        vrm.scene.scale.y = Math.max(0.1, vrm.scene.scale.y - scaleStep)
+        vrm.scene.scale.z = Math.max(0.1, vrm.scene.scale.z - scaleStep)
+        showToast('Scale Down', `Scale: ${vrm.scene.scale.x.toFixed(2)}`, 'info', 1000)
+      }
+      if (e.shiftKey && e.key === ')') {
+        vrm.scene.scale.set(2.5, 2.5, 2.5) // Reset to default
+        showToast('Scale Reset', 'Reset to 2.5', 'info', 1000)
+      }
     }
   })
 })
@@ -279,6 +303,21 @@ async function initializeManagers() {
     // 5. AI Client
     loadingProgress.value = 75
     aiClient = new AIClient(configManager.getApiKey(), configManager.getModel())
+
+    // 🆕 RESTORE HISTORY ON LOAD
+    // This pulls the old conversation (with timestamps) so the AI remembers context.
+    const savedHistory = localStorage.getItem('vrm_chat_history')
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          aiClient.setHistory(parsed)
+          console.log(`📜 History loaded: ${parsed.length} entries.`)
+        }
+      } catch (e) {
+        console.error('Failed to parse history:', e)
+      }
+    }
 
     // 5b. Vision Manager
     visionManager = new VisionManager()
@@ -353,12 +392,17 @@ async function loadVRMModel() {
 }
 
 // --- LIVE MODE HANDLER (Microphone + AI Animations) ---
-// ...
 async function toggleLiveMode() {
   if (isLiveMode.value) {
     if (aiClient) aiClient.disconnect()
     isLiveMode.value = false
     systemStatus.value = 'Ready'
+
+    // 🛑 STOP VISION WHEN TOGGLING OFF
+    if (visionManager) {
+      visionManager.stopScreenShare()
+      visionManager.stopCameraStream()
+    }
   } else {
     isLiveMode.value = true
     systemStatus.value = 'Connecting Live...'
@@ -367,10 +411,31 @@ async function toggleLiveMode() {
     const availableAnims = animationManager ? animationManager.getAvailableAnimations() : []
 
     // ⚡ 2. DYNAMIC PROMPT
+    let nameInstruction = ''
+    if (userName.value) {
+      nameInstruction = `\nUser's name is "${userName.value}". Call him by his name often.`
+    } else {
+      nameInstruction = `\nUser's name is UNKNOWN. Start by asking "Who are you?" or "What's your name?". Do NOT assume his name correctly until he tells you. Once he tells you, use the 'set_user_name' tool to save it.`
+    }
+
+    // ⚡ 3. MEMORIES
+    let memoryInstruction = ''
+    const memories = Object.entries(userMemories.value)
+    if (memories.length > 0) {
+      memoryInstruction =
+        `\n\n[USER_MEMORIES]\n` +
+        memories.map(([k, v]) => `- ${k}: ${v}`).join('\n') +
+        `\n[END_MEMORIES]\nUse these facts to personalize the conversation.`
+    }
+
     const prompt =
       configManager.getSystemPrompt() +
+      nameInstruction +
+      memoryInstruction +
       `\n\nIMPORTANT: Use 'trigger_animation' to act. Available animations: ${availableAnims.join(', ')}.` +
-      "\nUse 'set_expression(expr, duration)' for emotions (happy, sad, angry, surprised, excited)."
+      "\nUse 'set_expression(expr, duration)' for emotions (happy, sad, angry, surprised, excited)." +
+      "\nUse 'save_memory(key, value)' to remember important new facts about the user." +
+      "\nUse 'delete_memory(key)' to remove a specific memory if the user asks you to forget it."
 
     try {
       await aiClient.connectLive(
@@ -387,25 +452,63 @@ async function toggleLiveMode() {
           console.log(`🤖 Face: ${faceName}`)
           if (animationManager) animationManager.setExpression(faceName, duration)
         },
-        // Vision
+        // Vision (Video Stream)
         async () => {
-          console.log('🤖 Vision Requested')
-          return await visionManager.captureFrame()
+          console.log('🤖 Vision Stream Requested')
+          await visionManager.startCameraStream((base64Frame) => {
+            if (aiClient) aiClient._sendRealtimeImage(base64Frame)
+          })
+          return true
         },
         // Screen
         async () => {
           console.log('🖥️ Screen Capture Requested')
-          return await visionManager.captureScreenFrame()
+          await visionManager.startScreenShare((base64Frame) => {
+            if (aiClient) aiClient._sendRealtimeImage(base64Frame)
+          })
+          return true
         },
         // Disconnect Handler
         (reason) => {
           console.log('🔌 Disconnected:', reason)
           isLiveMode.value = false
           systemStatus.value = 'Ready'
-          showToast('Connection Closed', reason, 'error', 5000)
+
+          // 🛑 ENSURE VISION STOPS ON AUTO-DISCONNECT TOO
+          if (visionManager) {
+            visionManager.stopScreenShare()
+            visionManager.stopCameraStream()
+          }
         },
-        // ⚡ PASS LIST TO CLIENT
+        // Available Animations
         availableAnims,
+        // Name Set Handler
+        (name) => {
+          console.log('💾 Setting User Name:', name)
+          userName.value = name
+          localStorage.setItem('vrm_user_name', name)
+          showToast('Name Saved', `Nice to meet you, ${name}!`, 'success')
+        },
+        // Memory Saved Handler
+        (key, value) => {
+          console.log(`💾 Memory Saved: ${key} = ${value}`)
+          userMemories.value[key] = value
+          localStorage.setItem('vrm_user_memories', JSON.stringify(userMemories.value))
+          showToast('Memory Saved', `Remembered: ${key}`, 'success')
+        },
+        // Memory Deleted Handler
+        (key) => {
+          console.log(`🗑️ Memory Deleted: ${key}`)
+          delete userMemories.value[key]
+          localStorage.setItem('vrm_user_memories', JSON.stringify(userMemories.value))
+          showToast('Memory Deleted', `Forgot: ${key}`, 'info')
+        },
+        // 🆕 HISTORY CHANGE HANDLER (Saves Transcript Immediately)
+        (updatedHistory) => {
+          localStorage.setItem('vrm_chat_history', JSON.stringify(updatedHistory))
+        },
+        // 🔔 System Messages (Toasts)
+        (title, msg, type) => showToast(title, msg, type),
       )
       systemStatus.value = '🔴 LIVE'
     } catch (e) {
@@ -414,7 +517,6 @@ async function toggleLiveMode() {
     }
   }
 }
-// ...
 
 // --- TEXT MESSAGE HANDLER (Typing) ---
 async function sendMessage() {
@@ -431,7 +533,6 @@ async function sendMessage() {
 
     console.log('📤 Sending Text:', message)
 
-    // Use utility to handle Text -> Audio (REST API)
     const { processMessageOptimized } = await import('../managers/utils.js')
     await processMessageOptimized(
       message,
@@ -442,6 +543,12 @@ async function sendMessage() {
       configManager,
       audioRef.value,
     )
+
+    // Save to LocalStorage (Text Mode)
+    if (aiClient && aiClient.getHistory) {
+      const history = aiClient.getHistory()
+      localStorage.setItem('vrm_chat_history', JSON.stringify(history))
+    }
   } catch (error) {
     console.error('❌ Message Error:', error)
     showToast('Error', error.message, 'error')
@@ -530,7 +637,7 @@ function startFPSCounter() {
 
 onBeforeUnmount(() => {
   if (fpsInterval) clearInterval(fpsInterval)
-  if (isLiveMode.value) toggleLiveMode() // Cleanup live mode
+  if (isLiveMode.value) toggleLiveMode()
   if (animationManager?.cleanup) animationManager.cleanup()
   if (audioManager) audioManager.cleanup()
   if (sceneManager) sceneManager.cleanup()

@@ -48,7 +48,8 @@ export class VRMLoader {
 
     // Portrait mode positioning
     vrm.scene.rotation.y = Math.PI
-    vrm.scene.scale.set(2.5, 2.5, 2.5)
+    // vrm.scene.scale.set(2.5, 2.5, 2.5)
+    vrm.scene.scale.set(2, 2, 2)
     vrm.scene.position.set(0, -1.2, -0.3)
     vrm.scene.castShadow = true
     vrm.scene.receiveShadow = true
@@ -75,14 +76,14 @@ export class VRMLoader {
 
       // STRONG rotations to bring arms DOWN from T-pose
       if (leftUpperArm) {
-        leftUpperArm.rotation.z = 1.0  // Bring left arm DOWN (stronger)
-        leftUpperArm.rotation.x = 0.3  // Forward
-        leftUpperArm.rotation.y = 0.2  // Inward
+        leftUpperArm.rotation.z = 1.0 // Bring left arm DOWN (stronger)
+        leftUpperArm.rotation.x = 0.3 // Forward
+        leftUpperArm.rotation.y = 0.2 // Inward
       }
 
       if (rightUpperArm) {
         rightUpperArm.rotation.z = -1.0 // Bring right arm DOWN (stronger)
-        rightUpperArm.rotation.x = 0.3  // Forward
+        rightUpperArm.rotation.x = 0.3 // Forward
         rightUpperArm.rotation.y = -0.2 // Inward
       }
 

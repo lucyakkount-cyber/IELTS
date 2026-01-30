@@ -128,7 +128,25 @@ export class SceneManager {
   }
 
   setupDragAndDrop(callback) {
-    /* ... keep existing logic ... */
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault()
+    })
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault()
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0]
+        const filename = file.name.toLowerCase()
+
+        if (filename.endsWith('.vrm')) {
+          console.log('📂 File Dropped:', filename)
+          callback(file)
+        } else {
+          console.warn('⚠️ Ignored non-VRM file:', filename)
+        }
+      }
+    })
   }
 
   cleanup() {
