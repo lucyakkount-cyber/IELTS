@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG = {
     speechLang: 'en-US',
   },
   ai: {
-    apiKey: 'AIzaSyCoOoH68_9R9bYNF6Zmsh43e0kq__zY8hM',
+    apiKey: import.meta.env?.VITE_OPENAI_API_KEY || '',
     model: 'gemini-3-flash-preview',
   },
   animations: {

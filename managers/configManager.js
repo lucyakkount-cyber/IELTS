@@ -25,54 +25,11 @@ export class ConfigManager {
     } catch (error) {
       console.error('❌ Failed to load configuration:', error)
 
-      // Fallback to default config
       this.config = this.getDefaultConfig()
       this.isLoaded = true
 
       console.warn('⚠️ Using default configuration')
       return this.config
-    }
-  }
-
-  getDefaultConfig() {
-    return {
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || '',
-      presets: {
-        default: {
-          system_prompt: `You are a helpful AI assistant. You are friendly, enthusiastic, and enjoy helping users with their questions and tasks. Keep your responses conversational and engaging.
-          IMPORTANT: Never end the conversation unless explicitly told to. Keep listening.`,
-        },
-      },  
-      sovits_ping_config: {
-        ref_audio_path: '/audio/reference.wav',
-        text_lang: 'en',
-        prompt_text: 'Hello, how are you today?',
-        prompt_lang: 'en',
-      },
-      vrm_config: {
-        model_path: '/models/nature.vrm',
-        scale: 2,
-        position: { x: 0, y: -2, z: -0.5 },
-        rotation: { x: 0, y: Math.PI, z: 0 },
-      },
-      animation_config: {
-        default_animations_path: 'dist/animations/',
-        idle_animation: 'HappyIdle.vrma',
-        gesture_animations: [
-          'Wave.vrma',
-          'Shrug.vrma',
-          'Pointing.vrma',
-          'Clapping.vrma',
-          'ThumbsUp.vrma',
-        ],
-      },
-      audio_config: {
-        tts_url: this.config.sovits_ping_config?.tts,
-        speech_recognition_lang: 'en-US',
-        audio_context_options: {
-          sampleRate: 44100,
-        },
-      },
     }
   }
 
@@ -124,7 +81,7 @@ export class ConfigManager {
   }
 
   getApiKey() {
-    return this.get('OPENAI_API_KEY', import.meta.env.VITE_GEMINI_API_KEY || '')
+    return import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || ''
   }
 
   getModel() {
