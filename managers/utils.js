@@ -1,4 +1,3 @@
-// managers/utils.js
 export class Utils {
   static delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -9,55 +8,13 @@ export class Utils {
       return { message: error.message }
     }
   }
-}
-
-export async function processMessageOptimized(
-  message,
-  aiClient,
-  audioManager,
-  animationManager,
-  vrm,
-  config,
-  audioElement,
-) {
-  try {
-    if (!message) return
-
-    // 1. TRY LIVE API (WebSocket) FIRST
-    if (aiClient.activeSession) {
-      console.log('⚡ Sending via Live WebSocket...')
-      const sent = await aiClient.sendRealtimeText(message)
-      if (sent) return 'Sent via Live'
+  // Simplified check for demo purposes
+  static getFeatureSupport() {
+    return {
+      webgl: !!window.WebGLRenderingContext,
+      webaudio: !!(window.AudioContext || window.webkitAudioContext),
+      speechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      worklet: !!(window.AudioContext && window.AudioContext.prototype.audioWorklet),
     }
-
-    // 2. FALLBACK TO REST API (Native Audio)
-    // The first time, this takes ~1s to connect.
-    // Every time after, it is INSTANT (ms).
-    const audioBlob = await aiClient.chatWithNativeAudio(message, config.getSystemPrompt())
-
-    if (!audioBlob) throw new Error('No audio returned')
-
-    // 2. SETUP ANIMATION
-    if (audioManager.setSpeechCallbacks) {
-      audioManager.setSpeechCallbacks(
-        () => {
-          if (animationManager?.setSpeakingState) animationManager.setSpeakingState(true)
-        },
-        () => {
-          if (animationManager?.setSpeakingState) animationManager.setSpeakingState(false)
-        },
-      )
-    }
-
-    // 3. PLAY
-    console.log('🔊 Playing Audio Response...')
-    audioManager.detectMouthExpressions(vrm)
-    await audioManager.playAudioBlob(audioBlob, audioElement, vrm)
-
-    return 'Played'
-  } catch (error) {
-    console.error('❌ Process Error:', error)
-    if (animationManager?.setSpeakingState) animationManager.setSpeakingState(false)
-    throw error
   }
 }

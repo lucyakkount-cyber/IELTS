@@ -3,34 +3,42 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation'
 
 export class AnimationManager {
-  constructor(vrm) {
+  vrm
+  mixer
+  actions = {}
+  activeAction = null
+  loader
+  camera = null
+  currentState = 'idle'
+  mainIdle = 'HappyIdle'
+  currentExpression = 'neutral'
+  targetExpression = 'neutral'
+  expressionTimer = null
+
+  // Blink State
+  blinkTimer = 0
+  nextBlinkTime = 3
+  isBlinking = false
+  blinkDuration = 0.15
+  blinkProgress = 0
+
+  // Micro-Expression State
+  microTimer = 0
+  microIntensity = 0
+
+  // Speaking State
+  isSpeaking = false
+
+  expressionMap
+
+  constructor(vrm, camera = null) {
     this.vrm = vrm
+    this.camera = camera
     this.mixer = new THREE.AnimationMixer(vrm.scene)
-    this.actions = {}
-    this.activeAction = null
     this.loader = new GLTFLoader()
+    this.loader.setCrossOrigin('anonymous')
     this.loader.register((parser) => new VRMAnimationLoaderPlugin(parser))
 
-    this.currentState = 'idle'
-    this.mainIdle = 'HappyIdle'
-
-    // Face State
-    this.currentExpression = 'neutral'
-    this.targetExpression = 'neutral'
-    this.expressionTimer = null
-
-    // Blink State
-    this.blinkTimer = 0
-    this.nextBlinkTime = 3 // seconds
-    this.isBlinking = false
-    this.blinkDuration = 0.15 // seconds
-    this.blinkProgress = 0
-
-    // Micro-Expression State
-    this.microTimer = 0
-    this.microIntensity = 0
-
-    // Emotion Map (Supports Strings or Weighted Objects)
     this.expressionMap = {
       happy: 'happy',
       joy: 'happy',
@@ -41,7 +49,7 @@ export class AnimationManager {
       sorrow: 'sad',
 
       // Composite Emotions
-      embarrassed: { sad: 0.3, happy: 0.2 }, // Shy smile
+      embarrassed: { sad: 0.3, happy: 0.2 },
       angry: 'angry',
       serious: { angry: 0.5 },
       disgust: { angry: 0.6, sad: 0.2 },
@@ -50,7 +58,7 @@ export class AnimationManager {
       surprised: 'surprised',
       shock: { surprised: 1.0, angry: 0.2 },
       fear: { surprised: 0.5, sad: 0.5 },
-      confused: { angry: 0.4, surprised: 0.2 }, // Furrowed brow + slight wide eye
+      confused: { angry: 0.4, surprised: 0.2 },
 
       relaxed: 'relaxed',
       tired: { relaxed: 0.5, sad: 0.2 },
@@ -68,20 +76,20 @@ export class AnimationManager {
     return Object.keys(this.actions)
   }
 
-  async initialize() {
+  async initialize(options = {}) {
+    const { onProgress } = options
     console.log('🔄 AnimationManager: Loading clips...')
     this.mixer.addEventListener('finished', (e) => this.onAnimationFinished(e))
 
-    // ⚡ FIX: Using '/animations/' (Root) and '.fbx' (Actual file type)
+    const repoBase =
+      'https://raw.githubusercontent.com/lucyakkount-cyber/VRM_1/main/public/animations'
+
+    // Updated file list based on reference
     const files = [
       { name: 'HappyIdle', path: '/animations/HappyIdle.vrma', loop: true },
-      // ✅ FIX 1: Map Talking to Idle so body breathes while mouth moves
-
       { name: 'wave', path: '/animations/Waving.vrma', loop: false },
-      // ✅ FIX 2: Macarena must LOOP
-      { name: 'Macarena_dance', path: '/animations/MacarenaDance.vrma', loop: false },
+      { name: 'Macarena_dance', path: '/animations/MacarenaDance.vrma', loop: true }, // Loop true based on ref logic usually, or explicit instruction
       { name: 'dance', path: '/animations/HipHopDance.vrma', loop: false },
-
       { name: 'clap', path: '/animations/Clapping.vrma', loop: false },
       { name: 'thumbs_up', path: '/animations/ThumbsUp.vrma', loop: false },
       { name: 'shrug', path: '/animations/Shrugging.vrma', loop: false },
@@ -89,8 +97,6 @@ export class AnimationManager {
       { name: 'laugh', path: '/animations/Laughing.vrma', loop: false },
       { name: 'salute', path: '/animations/Salute.vrma', loop: false },
       { name: 'angry', path: '/animations/Angry.vrma', loop: false },
-
-      // Proxies
       { name: 'backflip', path: '/animations/BackFlip.vrma', loop: false },
       { name: 'acknowledging', path: '/animations/Acknowledging.vrma', loop: false },
       { name: 'blow_kiss', path: '/animations/BlowKiss.vrma', loop: false },
@@ -98,22 +104,39 @@ export class AnimationManager {
       { name: 'looking_around', path: '/animations/LookingAround.vrma', loop: false },
     ]
 
-    for (const file of files) {
-      await this.loadClip(file.name, file.path, file.loop)
+    const total = files.length
+    for (const [index, file] of files.entries()) {
+      const remoteUrl = `${repoBase}/${file.path.split('/').pop()}`
+      await this.loadClipWithFallback(file.name, file.path, remoteUrl, file.loop)
+      onProgress?.({
+        current: index + 1,
+        total,
+        name: file.name,
+      })
     }
 
     console.log('✅ AnimationManager Ready')
-    this.play(this.mainIdle)
+    if (this.actions[this.mainIdle]) {
+      this.play(this.mainIdle)
+    }
+  }
+
+  async loadClipWithFallback(name, localPath, remoteUrl, isLoop) {
+    try {
+      await this.loadClip(name, localPath, isLoop)
+    } catch {
+      await this.loadClip(name, remoteUrl, isLoop)
+    }
   }
 
   setExpression(name, duration = 0) {
     const rawName = name.toLowerCase()
-    let resolved = 'neutral' // Can be string or object
+    let resolved = 'neutral'
 
     if (this.vrm.expressionManager.getExpressionTrackName(rawName)) {
-      resolved = rawName // Direct match
+      resolved = rawName
     } else if (this.expressionMap[rawName]) {
-      resolved = this.expressionMap[rawName] // Map match
+      resolved = this.expressionMap[rawName]
     }
 
     console.log(`😊 Face: ${name} =>`, resolved, `(${duration}s)`)
@@ -127,11 +150,25 @@ export class AnimationManager {
     }
   }
 
+  setSpeakingState(isSpeaking) {
+    this.isSpeaking = isSpeaking
+    // We do NOT assume 'Talking' animation exists.
+    // We rely on isSpeaking flag to unlock mouth blendshapes for AudioAnalyzer.
+  }
+
   update(delta) {
     if (this.mixer) this.mixer.update(delta)
-    if (this.vrm && this.vrm.expressionManager) {
-      this.updateBlink(delta)
-      this.updateExpressions(delta)
+    if (this.vrm) {
+      if (this.vrm.expressionManager) {
+        this.updateBlink(delta)
+        this.updateExpressions(delta)
+      }
+
+      // LookAt implementation - eyes track camera
+      if (this.vrm.lookAt && this.camera) {
+        this.vrm.lookAt.target = this.camera
+        this.vrm.lookAt.update(delta)
+      }
     }
   }
 
@@ -140,7 +177,7 @@ export class AnimationManager {
     if (this.blinkTimer >= this.nextBlinkTime) {
       this.isBlinking = true
       this.blinkTimer = 0
-      this.nextBlinkTime = 2 + Math.random() * 3 // Random blink interval 2-5s
+      this.nextBlinkTime = 2 + Math.random() * 3
     }
 
     if (this.isBlinking) {
@@ -156,56 +193,46 @@ export class AnimationManager {
     const manager = this.vrm.expressionManager
     const speed = 5.0 * delta
 
-    // 1. Calculate Blink Value (Sine wave for smoothness)
+    // 1. Blink
     let blinkValue = 0
     if (this.isBlinking) {
       const t = Math.PI * (this.blinkProgress / this.blinkDuration)
       blinkValue = Math.sin(t)
     }
 
-    // 2. Micro-Expressions (Breathing/Subtle movement on mood)
+    // 2. Micro-Expressions
     this.microTimer += delta
-    this.microIntensity = Math.sin(this.microTimer * 2) * 0.05 // +/- 0.05 variation
+    this.microIntensity = Math.sin(this.microTimer * 2) * 0.05
 
-    // 3. Define Key Groups
+    // 3. Moods
     const moodKeys = ['neutral', 'happy', 'angry', 'sad', 'relaxed', 'surprised']
     const mouthKeys = ['aa', 'ee', 'ih', 'oh', 'ou']
 
-    // 4. Update Moods
     moodKeys.forEach((key) => {
       const currentVal = manager.getValue(key) || 0
-
-      // Calculate Target for this specific blendshape key
       let baseTarget = 0.0
 
       if (typeof this.targetExpression === 'string') {
-        // Simple Mode: Single Winner
         baseTarget = key === this.targetExpression ? 1.0 : 0.0
       } else if (typeof this.targetExpression === 'object') {
-        // Composite Mode: Weighted Blend
         baseTarget = this.targetExpression[key] || 0.0
       }
 
-      // Add Micro-Expressions only if this key is active (prevents phantom twitching on 0 values)
       if (baseTarget > 0.1) {
         baseTarget += this.microIntensity
       }
-
-      // Clamp
       baseTarget = Math.max(0, Math.min(1, baseTarget))
 
       const newVal = THREE.MathUtils.lerp(currentVal, baseTarget, speed)
       manager.setValue(key, newVal < 0.01 ? 0 : newVal)
     })
 
-    // 5. Update Eyes (Blink overrides mood-based eye shapes if needed, but usually additive is fine)
-    // For standard VRM, 'blink' controls both.
     manager.setValue('blink', blinkValue)
 
-    // 6. Update Mouth
-    // If talking, we let external lip-sync control it (so we do NOTHING or blend to 0 if we want to enforce silence)
-    // Current logic: If NOT talking, force mouth closed. If Talking, ignore (let SpeechManager/Audio handle it).
-    if (this.currentState !== 'talking') {
+    // 4. Mouth Movement Control
+    // Reference Logic: If talking, let external lip-sync control it (do nothing).
+    // If NOT talking, force mouth closed.
+    if (!this.isSpeaking) {
       mouthKeys.forEach((key) => {
         const currentVal = manager.getValue(key) || 0
         const newVal = THREE.MathUtils.lerp(currentVal, 0, speed)
@@ -222,34 +249,31 @@ export class AnimationManager {
       this.play(name)
       return
     }
-
-    // 2. Case-Insensitive Search
+    // 2. Case-Insensitive Match
     const lowerName = name.toLowerCase()
     const foundKey = Object.keys(this.actions).find((k) => k.toLowerCase() === lowerName)
     if (foundKey) {
-      console.log(`⚠️ Animation Case Mismatch: '${name}' -> '${foundKey}'`)
       this.play(foundKey)
       return
     }
-
-    // 3. Fallback / Ignore
-    console.warn(`⚠️ Animation '${name}' not found. Ignoring.`)
+    console.warn(`⚠️ Animation '${name}' not found.`)
   }
 
   onAnimationFinished(e) {
     const clipName = e.action.getClip().name
-    if (clipName !== 'HappyIdle' && clipName !== 'dance' && clipName !== 'Talking') {
+    const isLoopOnce = e.action.loop === THREE.LoopOnce
+
+    if (clipName !== 'HappyIdle' && clipName !== 'Macarena_dance' && isLoopOnce) {
       this.play(this.mainIdle)
     }
   }
 
   async loadClip(name, url, isLoop) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.loader.load(
         url,
         (gltf) => {
           let clip = null
-          // Handle VRMA vs FBX structure
           if (gltf.userData.vrmAnimations && gltf.userData.vrmAnimations.length > 0) {
             clip = createVRMAnimationClip(gltf.userData.vrmAnimations[0], this.vrm)
           } else if (gltf.animations && gltf.animations.length > 0) {
@@ -260,7 +284,7 @@ export class AnimationManager {
             clip.name = name
             const action = this.mixer.clipAction(clip)
             action.loop = isLoop ? THREE.LoopRepeat : THREE.LoopOnce
-            action.clampWhenFinished = !isLoop
+            action.clampWhenFinished = true
             this.actions[name] = action
             resolve(action)
           } else {
@@ -271,7 +295,7 @@ export class AnimationManager {
         undefined,
         (err) => {
           console.warn(`❌ Load failed: ${url}`, err)
-          resolve(null)
+          reject(err)
         },
       )
     })
@@ -281,22 +305,20 @@ export class AnimationManager {
     const action = this.actions[name]
     if (!action) return
     if (this.activeAction === action) return
-    if (this.activeAction) this.activeAction.fadeOut(0.5)
+
+    if (this.activeAction) {
+      this.activeAction.fadeOut(0.5)
+    }
+
     action.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(0.5).play()
+
     this.activeAction = action
-    if (name === 'Talking') this.currentState = 'talking'
-    else if (name === this.mainIdle) this.currentState = 'idle'
-  }
 
-  setSpeakingState(isSpeaking) {
-    if (this.activeAction && !this.activeAction.loop && this.activeAction.isRunning()) return
-    if (isSpeaking && this.currentState !== 'talking') this.play('Talking')
-    else if (!isSpeaking && this.currentState === 'talking') this.play(this.mainIdle)
-  }
-
-  notifyInteraction() {
-    // Called when user interacts - optional happiness expression
-    this.setExpression('happy', 2.0)
+    if (name === this.mainIdle) {
+      this.currentState = 'idle'
+    } else {
+      this.currentState = name
+    }
   }
 
   cleanup() {

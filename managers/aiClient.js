@@ -1,4 +1,3 @@
-// managers/aiClient.js
 import { GoogleGenAI } from '@google/genai'
 
 const WORKLET_CODE = `
@@ -15,30 +14,36 @@ registerProcessor('pcm-processor', PCMProcessor);
 `
 
 export class AIClient {
+  client
+  liveModel
+  activeSession = null
+  audioContext = null
+  workletNode = null
+  mediaStream = null
+  isRecording = false
+  inputBuffer = new Int16Array(4096)
+  inputBufferIndex = 0
+  isDisconnecting = false
+  isSessionOpen = false
+  isReconnecting = false
+  connectionArgs = null
+  recognition = null
+  onDisconnectCallback = null
+
+  // Transcription state
+  currentInputTranscription = ''
+  currentOutputTranscription = ''
+
+  // Internal history to preserve context on reconnects
+  internalHistory = []
+
   constructor(apiKey, model) {
-    this.client = new GoogleGenAI({ apiKey: apiKey })
+    // Prevent immediate crash if API key is missing.
+    // We use a placeholder that will fail gracefully during 'connect', not construction.
+    const safeKey = apiKey || 'dummy_key_placeholder'
+    this.client = new GoogleGenAI({ apiKey: safeKey })
     this.liveModel = model
-    this.activeSession = null
-    this.audioContext = null
-    this.workletNode = null
-    this.mediaStream = null
-    this.isRecording = false
-    this.inputBuffer = new Int16Array(4096)
-    this.inputBufferIndex = 0
-    this.isDisconnecting = false
-    this.lastResumptionHandle = null
-    this.isSessionOpen = false
-
-    // 🔄 Reconnection Logic
-    this.reconnectAttempts = 0
-    this.maxReconnectAttempts = 3
-    this.connectionStableTimer = null
   }
-
-  // History methods removed
-  // setHistory(history) {}
-  // getHistory() {}
-  // addToHistory(role, text) {}
 
   async connectLive(
     systemPrompt = '',
@@ -54,16 +59,22 @@ export class AIClient {
     onMemoryDeleted,
     onHistoryChange,
     onSystemMessage,
+    onTranscription,
+    pastHistory = [],
+    initialMessage = '',
+    enableMic = true,
   ) {
     if (this.activeSession) return
 
-    console.log('🔌 Connecting to Gemini Live...')
+    console.log(`🔌 Connecting to Gemini Live... (Mic: ${enableMic})`)
     this.isDisconnecting = false
     this.isReconnecting = false
+    this.internalHistory = []
+    this.onDisconnectCallback = onDisconnect || null
 
     try {
       this.connectionArgs = {
-        systemPrompt,
+        baseSystemPrompt: systemPrompt,
         onAudioData,
         onAnimationTrigger,
         onExpressionTrigger,
@@ -76,6 +87,10 @@ export class AIClient {
         onMemoryDeleted,
         onHistoryChange,
         onSystemMessage,
+        onTranscription,
+        pastHistory,
+        initialMessage,
+        enableMic,
       }
 
       await this._establishConnection()
@@ -90,7 +105,7 @@ export class AIClient {
     if (this.isDisconnecting) return
 
     const {
-      systemPrompt,
+      baseSystemPrompt,
       onAudioData,
       onAnimationTrigger,
       onExpressionTrigger,
@@ -100,7 +115,59 @@ export class AIClient {
       onMemorySaved,
       onMemoryDeleted,
       onSystemMessage,
+      onTranscription,
+      pastHistory,
+      initialMessage,
+      enableMic,
     } = this.connectionArgs
+
+    // Reconstruct System Prompt with Full Context
+    let fullSystemPrompt = baseSystemPrompt
+
+    // Combine passed history with any internal history accumulated during this session wrapper
+    const combinedHistory = [...pastHistory, ...this.internalHistory]
+
+    // INTELLIGENT RECONNECT LOGIC:
+    // Check if the last message in history was from the user.
+    // If so, it means the connection dropped before the AI could respond.
+    // We treat this as a "Pending Question" that needs an immediate answer.
+    let pendingUserQuestion = initialMessage || ''
+
+    if (combinedHistory.length > 0) {
+      const lastMsg = combinedHistory[combinedHistory.length - 1]
+
+      // If we don't have an explicit initial message, but the history shows the user spoke last
+      if (!pendingUserQuestion && lastMsg.role === 'user') {
+        console.log('⚠️ Found unanswered user message in history. Reprompting model.', lastMsg.text)
+        pendingUserQuestion = lastMsg.text
+      }
+
+      // Format history for context (excluding the pending question if we are going to inject it as a prompt)
+      const validHistory = combinedHistory.filter((m) => m.text && m.text.trim().length > 0)
+      const historyText = validHistory
+        .slice(-20)
+        .map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`)
+        .join('\n')
+
+      fullSystemPrompt += `\n\nIMPORTANT: You are continuing a conversation. Below is the recent chat history. Use it to maintain context.\n\n--- HISTORY START ---\n${historyText}\n--- HISTORY END ---\n\nIf the user says "do you remember", refer to this history.`
+    }
+
+    // Inject the pending question/initial message into the system instruction
+    // This forces the model to respond to it immediately upon connection establishment.
+    if (pendingUserQuestion && pendingUserQuestion.trim().length > 0) {
+      fullSystemPrompt += `\n\nCRITICAL INSTRUCTION: The user just said: "${pendingUserQuestion}".\nThe connection was previously interrupted. You must ANSWER this specific message immediately as your first response. Do NOT say hello. Do NOT apologize for the disconnection. JUST ANSWER THE QUESTION.`
+
+      // Ensure this pending message is tracked in history if it wasn't already
+      const lastMsg =
+        combinedHistory.length > 0 ? combinedHistory[combinedHistory.length - 1] : null
+      if (!lastMsg || lastMsg.text !== pendingUserQuestion) {
+        this.internalHistory.push({
+          role: 'user',
+          text: pendingUserQuestion,
+          timestamp: Date.now(),
+        })
+      }
+    }
 
     const animString =
       this.connectionArgs.availableAnimations.length > 0
@@ -110,96 +177,258 @@ export class AIClient {
     const tools = this._getTools(animString)
 
     const config = {
+      // Must be 'AUDIO' for Gemini Live
       responseModalities: ['AUDIO'],
       tools: tools,
-      systemInstruction: { parts: [{ text: systemPrompt }] },
+      systemInstruction: fullSystemPrompt,
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
       },
+      // Re-enabled transcription
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
     }
 
-    console.log('🔌 Starting New Session...')
+    console.log('🔌 Starting New Session. History items:', combinedHistory.length)
 
-    // 1️⃣ Connect
-    this.activeSession = await this.client.live.connect({
-      model: this.liveModel,
-      config,
-      callbacks: {
-        onopen: () => {
-          console.log('✅ Live Session Started')
-          this.isSessionOpen = true
+    try {
+      // 1️⃣ Connect
+      this.activeSession = await this.client.live.connect({
+        model: this.liveModel,
+        config: config,
+        callbacks: {
+          onopen: () => {
+            console.log('✅ Live Session Started')
+            this.isSessionOpen = true
 
-          // 🔔 Notify User
-          if (this.isReconnecting) {
-            onSystemMessage?.('Reconnected', 'Started new session', 'success')
-            this.isReconnecting = false
-          } else {
-            onSystemMessage?.('Connected', 'Live session started', 'success')
-          }
-
-          this.startMicrophone()
-        },
-        onmessage: (msg) => {
-          if (msg.serverContent?.modelTurn?.parts) {
-            for (const part of msg.serverContent.modelTurn.parts) {
-              if (part.inlineData?.data) {
-                const binaryString = atob(part.inlineData.data)
-                const bytes = new Uint8Array(binaryString.length)
-                for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i)
-                onAudioData?.(new Int16Array(bytes.buffer))
+            if (this.isReconnecting) {
+              onSystemMessage?.('Reconnected', 'Restored connection & context', 'success')
+              this.isReconnecting = false
+            } else {
+              // Only show connected message if not silently restarting for text
+              if (!initialMessage) {
+                onSystemMessage?.('Connected', 'Live session started', 'success')
               }
-              if (part.functionCall)
-                this._executeFunction(
-                  part.functionCall,
-                  onAnimationTrigger,
-                  onExpressionTrigger,
-                  onVisionTrigger,
-                  onScreenTrigger,
-                  onUserNameSet,
-                  onMemorySaved,
-                  onMemoryDeleted,
-                )
             }
-          }
-          if (msg.toolCall)
-            this._handleToolCall(
-              msg.toolCall,
-              onAnimationTrigger,
-              onExpressionTrigger,
-              onVisionTrigger,
-              onScreenTrigger,
-              onUserNameSet,
-              onMemorySaved,
-              onMemoryDeleted,
-              onSystemMessage,
-            )
+
+            if (enableMic) {
+              this.startMicrophone()
+            } else {
+              this.stopMicrophone()
+            }
+          },
+          onmessage: (msg) => {
+            // 1. Handle Transcriptions
+            if (msg.serverContent?.outputTranscription) {
+              if (this.currentInputTranscription.trim().length > 0) {
+                this._flushTranscriptions(true, onTranscription, 'user')
+              }
+
+              const text = msg.serverContent.outputTranscription.text
+              this.currentOutputTranscription += text
+              onTranscription?.('model', this.currentOutputTranscription, false)
+            } else if (msg.serverContent?.inputTranscription) {
+              const text = msg.serverContent.inputTranscription.text
+              this.currentInputTranscription += text
+              onTranscription?.('user', this.currentInputTranscription, false)
+            }
+
+            if (msg.serverContent?.turnComplete) {
+              this._flushTranscriptions(true, onTranscription, 'both')
+            }
+
+            // 2. Handle Audio
+            if (msg.serverContent?.modelTurn?.parts) {
+              for (const part of msg.serverContent.modelTurn.parts) {
+                if (part.inlineData?.data) {
+                  const binaryString = atob(part.inlineData.data)
+                  const bytes = new Uint8Array(binaryString.length)
+                  for (let i = 0; i < binaryString.length; i++)
+                    bytes[i] = binaryString.charCodeAt(i)
+                  onAudioData?.(new Int16Array(bytes.buffer))
+                }
+                if (part.functionCall)
+                  this._executeFunction(
+                    part.functionCall,
+                    onAnimationTrigger,
+                    onExpressionTrigger,
+                    onVisionTrigger,
+                    onScreenTrigger,
+                    onUserNameSet,
+                    onMemorySaved,
+                    onMemoryDeleted,
+                  )
+              }
+            }
+            if (msg.toolCall)
+              this._handleToolCall(
+                msg.toolCall,
+                onAnimationTrigger,
+                onExpressionTrigger,
+                onVisionTrigger,
+                onScreenTrigger,
+                onUserNameSet,
+                onMemorySaved,
+                onMemoryDeleted,
+              )
+          },
+          onclose: (e) => {
+            console.log('❌ Connection Closed', e)
+            this.isSessionOpen = false
+            this.activeSession = null
+
+            // IMPORTANT: Flush any partial transcriptions to history BEFORE attempting reconnect.
+            // This ensures if the user was speaking, their words are captured in history
+            // so the next session knows to answer them.
+            this._flushTranscriptions(true, onTranscription, 'both')
+
+            // If the user manually disconnected, stop here.
+            if (this.isDisconnecting) return
+
+            const reason = e.reason || 'Connection lost'
+
+            console.log(`🔄 Connection dropped unexpectedly (${reason}). Re-establishing in 2s...`)
+            onSystemMessage?.('Reconnecting', 'Connection lost. Retrying...', 'warning')
+
+            this.isReconnecting = true
+
+            // Wait 2 seconds before reconnecting to prevent rapid loop crashing
+            setTimeout(() => {
+              this._establishConnection()
+            }, 2000)
+          },
+          onerror: (e) => {
+            console.error('🔥 Live Error:', e)
+            // Error callback doesn't necessarily mean close, so we rely on onclose to trigger reconnect
+          },
         },
-        onclose: (e) => {
-          console.log('❌ Connection Closed', e)
-          this.isSessionOpen = false
-          this.activeSession = null
+      })
+    } catch (err) {
+      console.error('Failed to connect live session:', err)
 
-          if (this.isDisconnecting) return
-
-          const reason = e.reason || 'Connection lost'
-          console.log(`🔄 Re-establishing immediately: ${reason}`)
-          onSystemMessage?.('Reconnecting', 'Establishing new session...', 'warning')
-
-          // ⚡ IMMEDIATE NEW CONNECTION
-          this.lastResumptionHandle = null
-          this.isReconnecting = true
+      if (!this.isDisconnecting) {
+        console.log('🔄 Initial connection failed. Retrying in 3s...')
+        onSystemMessage?.('Connection Error', 'Retrying connection...', 'warning')
+        setTimeout(() => {
           this._establishConnection()
-        },
-        onerror: (e) => {
-          console.error('🔥 Live Error:', e)
-        },
-      },
-    })
+        }, 3000)
+      } else {
+        onSystemMessage?.('Connection Error', 'Failed to connect. Check API Key.', 'error')
+      }
+      return
+    }
 
-    // 2️⃣ Resend Pending Message - REMOVED
+    // FORCE TRIGGER: Ensure activeSession is set before poking
+    // If we have a pending question (initialMessage or recovered history), the prompt handles it.
+    // If not, we still send a noise trigger to wake up the audio stream.
+    if (pendingUserQuestion && pendingUserQuestion.trim().length > 0) {
+      // If we have a pending text question, we might want to 'kick' the model
+      // However, since we put it in systemInstruction, the model *should* speak immediately on connect.
+      // We add a small delay and trigger just in case the system instruction isn't picked up instantly as a turn.
+      setTimeout(() => {
+        this._triggerModelResponse()
+      }, 500)
+    }
   }
 
-  // ... (Tool Handling Code: _handleToolCall, _executeFunction, _sendToolResponse - KEEP THESE AS IS)
+  // Sends a synthetic "noise + silence" pattern to trigger the VAD
+  _triggerModelResponse() {
+    console.log('🚀 Triggering VAD with synthetic noise...')
+
+    // 1. Noise Burst (Trick VAD into "Speech Start")
+    const noiseLength = 3200
+    const noiseBuf = new Int16Array(noiseLength)
+    for (let i = 0; i < noiseLength; i++) {
+      noiseBuf[i] = (Math.random() - 0.5) * 200
+    }
+    this._sendToGemini(this._arrayBufferToBase64(noiseBuf.buffer))
+
+    // 2. Silence (Trick VAD into "Speech End")
+    setTimeout(() => {
+      const silenceLength = 8000
+      const silenceBuf = new Int16Array(silenceLength) // Zeros
+      this._sendToGemini(this._arrayBufferToBase64(silenceBuf.buffer))
+    }, 200)
+  }
+
+  _arrayBufferToBase64(buffer) {
+    let binary = ''
+    const bytes = new Uint8Array(buffer)
+    const len = bytes.byteLength
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    return btoa(binary)
+  }
+
+  // Safe sendText that restarts the session to force a response
+  async sendText(text) {
+    console.log('AIClient: Sending text by restarting session with context:', text)
+
+    let newPastHistory = [...(this.connectionArgs?.pastHistory || [])]
+    if (this.internalHistory.length > 0) {
+      newPastHistory = [...newPastHistory, ...this.internalHistory]
+    }
+
+    // Explicitly set isDisconnecting to false so the close handler knows we are managing this
+    // Actually, we want to STOP the auto-reconnect logic of the OLD session because we are making a NEW one.
+    this.isDisconnecting = true // Stop old session from fighting us
+
+    if (this.activeSession) {
+      try {
+        this.activeSession.close()
+      } catch (error) {
+        console.warn('Failed to close previous session', error)
+      }
+      this.activeSession = null
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+
+    if (this.connectionArgs) {
+      await this.connectLive(
+        this.connectionArgs.baseSystemPrompt,
+        this.connectionArgs.onAudioData,
+        this.connectionArgs.onAnimationTrigger,
+        this.connectionArgs.onExpressionTrigger,
+        this.connectionArgs.onVisionTrigger,
+        this.connectionArgs.onScreenTrigger,
+        this.connectionArgs.onDisconnect,
+        this.connectionArgs.availableAnimations,
+        this.connectionArgs.onUserNameSet,
+        this.connectionArgs.onMemorySaved,
+        this.connectionArgs.onMemoryDeleted,
+        this.connectionArgs.onHistoryChange,
+        this.connectionArgs.onSystemMessage,
+        this.connectionArgs.onTranscription,
+        newPastHistory,
+        text,
+        false,
+      )
+    } else {
+      console.error('AIClient: Cannot restart session, no connection args.')
+    }
+  }
+
+  _flushTranscriptions(isFinal, onTranscription, target = 'both') {
+    if ((target === 'user' || target === 'both') && this.currentInputTranscription.trim()) {
+      const text = this.currentInputTranscription
+      onTranscription?.('user', text, isFinal)
+      if (isFinal) {
+        this.internalHistory.push({ role: 'user', text, timestamp: Date.now() })
+        this.currentInputTranscription = ''
+      }
+    }
+
+    if ((target === 'model' || target === 'both') && this.currentOutputTranscription.trim()) {
+      const text = this.currentOutputTranscription
+      onTranscription?.('model', text, isFinal)
+      if (isFinal) {
+        this.internalHistory.push({ role: 'model', text, timestamp: Date.now() })
+        this.currentOutputTranscription = ''
+      }
+    }
+  }
+
   _handleToolCall(
     toolCall,
     onAnimationTrigger,
@@ -209,7 +438,6 @@ export class AIClient {
     onUserNameSet,
     onMemorySaved,
     onMemoryDeleted,
-    onSystemMessage,
   ) {
     if (!toolCall.functionCalls) return
     for (const fc of toolCall.functionCalls)
@@ -222,7 +450,6 @@ export class AIClient {
         onUserNameSet,
         onMemorySaved,
         onMemoryDeleted,
-        onSystemMessage,
       )
   }
 
@@ -256,80 +483,104 @@ export class AIClient {
     }
 
     if (name === 'look_at_user') {
-      onVisionTrigger?.().then((res) => {
-        if (typeof res === 'string') this._sendRealtimeImage(res)
-        this._sendToolResponse(id, name, {
-          result: typeof res === 'string' ? 'Image sent' : 'Stream started',
-        })
-      })
+      this._executeVisionCapture(id, name, onVisionTrigger, 'Camera not available.')
       return
     }
     if (name === 'look_at_screen') {
-      onScreenTrigger?.().then((res) => {
-        if (typeof res === 'string') this._sendRealtimeImage(res)
-        this._sendToolResponse(id, name, {
-          result: typeof res === 'string' ? 'Screen sent' : 'Screen stream started',
-        })
-      })
+      this._executeVisionCapture(
+        id,
+        name,
+        onScreenTrigger,
+        'Screen not shared or active. Ask user to enable screen share.',
+      )
       return
     }
 
     setTimeout(() => {
       if (name === 'trigger_animation') onAnimationTrigger?.(args.animation_name)
       if (name === 'set_expression') onExpressionTrigger?.(args.expression, args.duration || 2.0)
-    }, 2400)
+    }, 500)
+
     this._sendToolResponse(id, name, { status: 'queued' })
+  }
+
+  async _executeVisionCapture(id, toolName, captureFn, unavailableMessage) {
+    try {
+      if (!captureFn) {
+        await this._sendToolResponse(id, toolName, { result: unavailableMessage })
+        return
+      }
+
+      const frame = await captureFn()
+      if (frame && typeof frame === 'object' && typeof frame.error === 'string') {
+        await this._sendToolResponse(id, toolName, { result: frame.error })
+        return
+      }
+      if (typeof frame !== 'string' || frame.length === 0) {
+        await this._sendToolResponse(id, toolName, { result: unavailableMessage })
+        return
+      }
+
+      const delivered = await this._sendRealtimeImage(frame)
+      if (!delivered) {
+        await this._sendToolResponse(id, toolName, {
+          result: 'Session is reconnecting. Ask again in a moment.',
+        })
+        return
+      }
+
+      await this._sendToolResponse(id, toolName, {
+        result: 'Image delivered. Analyze and respond now.',
+      })
+    } catch (error) {
+      console.error(`${toolName} failed`, error)
+      await this._sendToolResponse(id, toolName, {
+        result: `Capture failed: ${error?.message || 'unknown error'}`,
+      })
+    }
   }
 
   async _sendToolResponse(id, name, response) {
     if (!this.activeSession) return
     try {
       await this.activeSession.sendToolResponse({
-        functionResponses: [{ id, name, response: { result: response } }],
+        functionResponses: [{ id, name, response }],
       })
-    } catch (e) {}
+    } catch (e) {
+      console.error('Tool response failed', e)
+    }
   }
 
   async _sendRealtimeImage(base64Image) {
-    if (!this.activeSession || !this.isSessionOpen) return
+    if (!this.activeSession || !this.isSessionOpen) return false
     try {
       await this.activeSession.sendRealtimeInput({
         media: { mimeType: 'image/jpeg', data: base64Image },
       })
+      return true
     } catch (e) {
       console.error('Image send failed', e)
+      return false
     }
   }
 
-  // 🛡️ SAFE MICROPHONE START
   async startMicrophone() {
     if (this.isRecording) return
     try {
-      try {
-        this.recognition?.start()
-      } catch (e) {}
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: 16000,
+      })
 
-      if (!this.audioContext) this.audioContext = new AudioContext({ sampleRate: 16000 })
-      if (this.audioContext.state === 'suspended') await this.audioContext.resume().catch(() => {})
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, sampleRate: 16000 },
+      })
 
-      // 🛡️ Check if disconnected during await
       if (!this.audioContext || this.isDisconnecting) return
-
-      if (!this.mediaStream || !this.mediaStream.active) {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, sampleRate: 16000 },
-        })
-      }
-
-      if (!this.audioContext || this.isDisconnecting) return // 🛡️ Double Check
 
       if (!this.workletNode) {
         const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' })
         const blobUrl = URL.createObjectURL(blob)
         await this.audioContext.audioWorklet.addModule(blobUrl)
-
-        // 🛡️ Triple Check (Worklet loading is async)
-        if (!this.audioContext || this.isDisconnecting) return
 
         const source = this.audioContext.createMediaStreamSource(this.mediaStream)
         this.workletNode = new AudioWorkletNode(this.audioContext, 'pcm-processor')
@@ -346,7 +597,6 @@ export class AIClient {
 
   stopMicrophone() {
     this.isRecording = false
-    this.recognition?.stop()
     this.mediaStream?.getTracks().forEach((t) => t.stop())
     this.mediaStream = null
     this.workletNode?.disconnect()
@@ -383,47 +633,28 @@ export class AIClient {
     }
   }
 
-  // 📝 UPDATED: Send Text (Safe & Optional History)
-  async sendRealtimeText(text, saveToHistory = true) {
-    if (!this.activeSession) return false
-    try {
-      // if (saveToHistory) this.addToHistory('user', text) // Removed
-      await this.activeSession.sendRealtimeInput({ text: text })
-      await this.activeSession.sendRealtimeInput({ audioStreamEnd: true }) // 👈 Signal VAD end
-      return true
-    } catch (e) {
-      console.error('Send Text Error:', e)
-      return false
-    }
-  }
-
   disconnect(reason = 'User disconnected') {
     if ((!this.activeSession && !this.isRecording) || this.isDisconnecting) return
     this.isDisconnecting = true
     console.log(`🔌 Disconnecting: ${reason}`)
 
-    if (this.connectionStableTimer) clearTimeout(this.connectionStableTimer)
-    this.lastResumptionHandle = null
-    this.reconnectAttempts = 0
     this.isSessionOpen = false
     this.stopMicrophone()
+
+    this._flushTranscriptions(true, this.connectionArgs?.onTranscription, 'both')
 
     if (this.activeSession) {
       try {
         this.activeSession.close()
-      } catch (e) {}
+      } catch (error) {
+        console.warn('Failed to close live session cleanly', error)
+      }
       this.activeSession = null
     }
     this.onDisconnectCallback?.(reason)
     this.onDisconnectCallback = null
   }
 
-  // Legacy (Keep as is)
-  async chatWithNativeAudio(message, systemPrompt) {
-    /* ... same as before ... */
-  }
-
-  // 🛠️ TOOLS DEFINITION (Crucial)
   _getTools(animString) {
     return [
       {
@@ -457,12 +688,12 @@ export class AIClient {
           {
             name: 'look_at_user',
             description: 'See the user via camera.',
-            parameters: { type: 'OBJECT', properties: {} },
+            // Strictly no parameters key for 0-argument functions
           },
           {
             name: 'look_at_screen',
             description: 'See the user screen.',
-            parameters: { type: 'OBJECT', properties: {} },
+            // Strictly no parameters key for 0-argument functions
           },
           {
             name: 'set_user_name',
@@ -475,16 +706,19 @@ export class AIClient {
           },
           {
             name: 'save_memory',
-            description: 'Save a fact.',
+            description: 'Persist a fact about the user.',
             parameters: {
               type: 'OBJECT',
-              properties: { key: { type: 'STRING' }, value: { type: 'STRING' } },
+              properties: {
+                key: { type: 'STRING' },
+                value: { type: 'STRING' },
+              },
               required: ['key', 'value'],
             },
           },
           {
             name: 'delete_memory',
-            description: 'Delete a fact.',
+            description: 'Forget a fact about the user.',
             parameters: {
               type: 'OBJECT',
               properties: { key: { type: 'STRING' } },

@@ -1,25 +1,21 @@
-// managers/visionManager.js
-
-export class VisionManager {
-  constructor() {
-    this.videoElement = null
-    this.canvasElement = null
-    this.stream = null
-    this.isInitialized = false
-    this.screenStream = null
-    this.screenVideoElement = null
-    this.isSharingScreen = false
-    this.screenShareInterval = null
-
-    // Store callbacks to allow updating them on-the-fly
-    this.onCameraFrame = null
-    this.onScreenFrame = null
-  }
+﻿export class VisionManager {
+  videoElement = null
+  canvasElement = null
+  stream = null
+  isInitialized = false
+  screenStream = null
+  screenVideoElement = null
+  isSharingScreen = false
+  screenShareInterval = null
+  cameraInterval = null
+  onCameraFrame = null
+  onScreenFrame = null
+  onStateChange = null
+  isRecordingClip = false
 
   async initialize() {
     if (this.isInitialized) return true
 
-    // Create hidden video element
     this.videoElement = document.createElement('video')
     this.videoElement.style.display = 'none'
     this.videoElement.autoplay = true
@@ -27,7 +23,6 @@ export class VisionManager {
     this.videoElement.setAttribute('playsinline', 'true')
     document.body.appendChild(this.videoElement)
 
-    // Create hidden canvas for capturing frames
     this.canvasElement = document.createElement('canvas')
     this.canvasElement.style.display = 'none'
 
@@ -35,112 +30,140 @@ export class VisionManager {
     return true
   }
 
+  isVideoTrackLive(stream) {
+    if (!stream) return false
+    const [track] = stream.getVideoTracks()
+    return !!track && track.readyState === 'live' && !track.muted
+  }
+
+  async ensureVideoReady(video, timeoutMs = 1200) {
+    if (!video) return false
+
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      if (video.paused) {
+        await video.play().catch(() => {})
+      }
+      return true
+    }
+
+    await new Promise((resolve) => {
+      let resolved = false
+      const finish = () => {
+        if (resolved) return
+        resolved = true
+        video.removeEventListener('loadedmetadata', finish)
+        video.removeEventListener('playing', finish)
+        resolve(true)
+      }
+
+      video.addEventListener('loadedmetadata', finish, { once: true })
+      video.addEventListener('playing', finish, { once: true })
+
+      setTimeout(() => {
+        finish()
+      }, timeoutMs)
+    })
+
+    if (video.paused) {
+      await video.play().catch(() => {})
+    }
+
+    return video.videoWidth > 0 && video.videoHeight > 0
+  }
+
+  stopCamera() {
+    if (this.stream) {
+      this.stream.getTracks().forEach((track) => track.stop())
+    }
+    this.stream = null
+    if (this.videoElement) {
+      this.videoElement.srcObject = null
+    }
+  }
+
   async startCamera() {
     if (!this.isInitialized) await this.initialize()
 
+    if (this.stream && this.isVideoTrackLive(this.stream)) {
+      if (this.videoElement?.srcObject !== this.stream) {
+        this.videoElement.srcObject = this.stream
+      }
+      await this.ensureVideoReady(this.videoElement)
+      return true
+    }
+
+    this.stopCamera()
+
     try {
-      console.log('📷 VisionManager: Requesting camera access...')
+      console.log('VisionManager: requesting camera access...')
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user',
-        },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       })
-      this.videoElement.srcObject = this.stream
 
-      await new Promise((resolve) => {
-        this.videoElement.onloadedmetadata = () => {
-          this.videoElement.play()
-          resolve()
+      const [track] = this.stream.getVideoTracks()
+      if (track) {
+        track.onended = () => {
+          this.stopCamera()
         }
-      })
+      }
 
-      console.log('✅ VisionManager: Camera started')
+      if (this.videoElement) {
+        this.videoElement.srcObject = this.stream
+        await this.ensureVideoReady(this.videoElement)
+      }
+
       return true
     } catch (error) {
-      console.error('❌ VisionManager: Camera failed', error)
+      console.error('VisionManager: camera failed', error)
+      this.stopCamera()
       return false
     }
   }
 
-  async startCameraStream(onFrameCallback) {
-    // Always update the callback to the latest one
-    this.onCameraFrame = onFrameCallback
-
-    if (this.cameraInterval) {
-      console.log('📷 VisionManager: Stream already active, callback updated.')
-      return true
-    }
-
-    if (!this.stream) {
-      const success = await this.startCamera()
-      if (!success) return false
-    }
-
-    console.log('📷 VisionManager: Starting continuous camera stream...')
-    const video = this.videoElement
-
-    this.cameraInterval = setInterval(() => {
-      const frame = this.captureVideoFrame(video, 640)
-      // Use the stored callback
-      if (frame && this.onCameraFrame) {
-        this.onCameraFrame(frame)
-      }
-    }, 1000)
-
-    return true
-  }
-
-  stopCameraStream() {
-    if (this.cameraInterval) {
-      clearInterval(this.cameraInterval)
-      this.cameraInterval = null
-      this.onCameraFrame = null
-      console.log('🛑 VisionManager: Stopped camera stream')
-    }
-  }
-
-  async captureFrame() {
-    if (!this.stream) {
+  async captureFrame(retry = true) {
+    if (!this.stream || !this.isVideoTrackLive(this.stream)) {
       const success = await this.startCamera()
       if (!success) return null
+    } else {
+      await this.ensureVideoReady(this.videoElement)
     }
 
     const video = this.videoElement
-    if (video.videoWidth === 0 || video.videoHeight === 0) return null
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      if (!retry) return null
+      this.stopCamera()
+      return this.captureFrame(false)
+    }
 
     const scale = Math.min(1, 640 / video.videoWidth)
     const width = Math.floor(video.videoWidth * scale)
     const height = Math.floor(video.videoHeight * scale)
 
-    this.canvasElement.width = width
-    this.canvasElement.height = height
-    const ctx = this.canvasElement.getContext('2d')
-    ctx.drawImage(video, 0, 0, width, height)
+    if (this.canvasElement) {
+      this.canvasElement.width = width
+      this.canvasElement.height = height
+      const ctx = this.canvasElement.getContext('2d')
+      ctx?.drawImage(video, 0, 0, width, height)
+      const dataURL = this.canvasElement.toDataURL('image/jpeg', 0.7)
+      return dataURL.split(',')[1]
+    }
 
-    const dataURL = this.canvasElement.toDataURL('image/jpeg', 0.7)
-    this.showPreview()
-    return dataURL.split(',')[1]
+    return null
   }
 
-  // --- Screen Capture Methods ---
-
-  async startScreenShare(onFrameCallback) {
-    // Always update the callback to the latest one
+  async startScreenShare(onFrameCallback = null) {
     this.onScreenFrame = onFrameCallback
 
-    if (this.screenStream) {
-      console.log('🖥️ VisionManager: Screen share already active, callback updated.')
+    if (this.screenStream && this.isVideoTrackLive(this.screenStream)) {
       return true
     }
 
-    try {
-      console.log('🖥️ VisionManager: Starting continuous screen share...')
+    this.stopScreenShare()
 
+    try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        console.warn('❌ Screen sharing not supported.')
-        return 'Screen sharing is not supported on this device/browser.'
+        console.warn('Screen sharing not supported (or permission disallowed).')
+        return false
       }
 
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -148,53 +171,75 @@ export class VisionManager {
         audio: false,
       })
 
-      this.screenStream.getVideoTracks()[0].onended = () => {
-        this.stopScreenShare()
+      const [track] = this.screenStream.getVideoTracks()
+      if (track) {
+        track.onended = () => {
+          this.stopScreenShare()
+        }
       }
 
       const video = document.createElement('video')
       video.srcObject = this.screenStream
       video.muted = true
-      video.play()
+      await video.play().catch(() => {})
       this.screenVideoElement = video
 
-      await new Promise((resolve) => (video.onloadedmetadata = resolve))
+      await this.ensureVideoReady(video)
 
       this.isSharingScreen = true
-      this.screenShareInterval = setInterval(() => {
-        if (!this.isSharingScreen) return
+      this.onStateChange?.(true)
 
-        const frame = this.captureVideoFrame(video, 1024)
-        // Use the stored callback
-        if (frame && this.onScreenFrame) {
-          this.onScreenFrame(frame)
-        }
-      }, 1000)
+      if (this.onScreenFrame) {
+        this.screenShareInterval = setInterval(() => {
+          if (!this.isSharingScreen) return
+          const frame = this.captureVideoFrame(video, 1280)
+          if (frame && this.onScreenFrame) {
+            this.onScreenFrame(frame)
+          }
+        }, 1000)
+      }
 
       return true
     } catch (error) {
-      console.error('❌ Screen Share failed:', error)
+      console.error('VisionManager: screen share failed', error?.message || error)
+      this.stopScreenShare()
       return false
     }
   }
 
   stopScreenShare() {
     if (!this.isSharingScreen && !this.screenStream) return
-    console.log('🛑 Stopping screen share...')
+
     this.isSharingScreen = false
+    this.onStateChange?.(false)
     this.onScreenFrame = null
 
     if (this.screenShareInterval) {
-        clearInterval(this.screenShareInterval)
-        this.screenShareInterval = null
+      clearInterval(this.screenShareInterval)
+      this.screenShareInterval = null
     }
 
     if (this.screenStream) {
-      this.screenStream.getTracks().forEach((t) => t.stop())
+      this.screenStream.getTracks().forEach((track) => track.stop())
     }
 
     this.screenStream = null
     this.screenVideoElement = null
+  }
+
+  captureScreen() {
+    if (!this.isSharingScreen || !this.screenVideoElement) return null
+
+    if (!this.screenStream || !this.isVideoTrackLive(this.screenStream)) {
+      this.stopScreenShare()
+      return null
+    }
+
+    if (this.screenVideoElement.videoWidth === 0 || this.screenVideoElement.videoHeight === 0) {
+      return null
+    }
+
+    return this.captureVideoFrame(this.screenVideoElement, 1920)
   }
 
   captureVideoFrame(video, maxWidth) {
@@ -204,52 +249,115 @@ export class VisionManager {
     const width = Math.floor(video.videoWidth * scale)
     const height = Math.floor(video.videoHeight * scale)
 
-    this.canvasElement.width = width
-    this.canvasElement.height = height
-    const ctx = this.canvasElement.getContext('2d')
-    ctx.drawImage(video, 0, 0, width, height)
+    if (this.canvasElement) {
+      this.canvasElement.width = width
+      this.canvasElement.height = height
+      const ctx = this.canvasElement.getContext('2d')
+      ctx?.drawImage(video, 0, 0, width, height)
+      return this.canvasElement.toDataURL('image/jpeg', 0.6).split(',')[1]
+    }
 
-    const dataURL = this.canvasElement.toDataURL('image/jpeg', 0.6)
-    return dataURL.split(',')[1]
+    return null
   }
 
-  showPreview() {
-    const previewCanvas = document.createElement('canvas')
-    previewCanvas.width = this.canvasElement.width
-    previewCanvas.height = this.canvasElement.height
-    previewCanvas.getContext('2d').drawImage(this.canvasElement, 0, 0)
+  async captureCameraClip(durationMs = 1800) {
+    if (!this.stream || !this.isVideoTrackLive(this.stream)) {
+      const success = await this.startCamera()
+      if (!success) return null
+    }
+    return this.recordStreamClip(this.stream, durationMs)
+  }
 
-    previewCanvas.style.position = 'fixed'
-    previewCanvas.style.bottom = '20px'
-    previewCanvas.style.right = '20px'
-    previewCanvas.style.width = '300px'
-    previewCanvas.style.height = 'auto'
-    previewCanvas.style.zIndex = '9999'
-    previewCanvas.style.border = '2px solid #00ffa3'
-    previewCanvas.style.borderRadius = '8px'
-    previewCanvas.style.boxShadow = '0 0 20px rgba(0,0,0,0.5)'
-    previewCanvas.style.transition = 'opacity 0.5s'
+  async captureScreenClip(durationMs = 1800) {
+    if (!this.screenStream || !this.isVideoTrackLive(this.screenStream)) {
+      return null
+    }
+    return this.recordStreamClip(this.screenStream, durationMs)
+  }
 
-    document.body.appendChild(previewCanvas)
+  async recordStreamClip(stream, durationMs = 1800) {
+    if (!stream || this.isRecordingClip || typeof MediaRecorder === 'undefined') {
+      return null
+    }
 
-    setTimeout(() => {
-      previewCanvas.style.opacity = '0'
-      setTimeout(() => {
-        if (previewCanvas.parentNode) {
-          document.body.removeChild(previewCanvas)
+    const mimeCandidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ]
+    const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || ''
+
+    this.isRecordingClip = true
+
+    return await new Promise((resolve) => {
+      const chunks = []
+      let recorder = null
+      let timeoutId = null
+
+      const finalize = (blob = null) => {
+        if (timeoutId) clearTimeout(timeoutId)
+        this.isRecordingClip = false
+        resolve(blob)
+      }
+
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType: mimeType || undefined,
+          videoBitsPerSecond: 900_000,
+        })
+      } catch {
+        finalize(null)
+        return
+      }
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data)
         }
-      }, 500)
-    }, 3000)
+      }
+
+      recorder.onerror = () => {
+        finalize(null)
+      }
+
+      recorder.onstop = () => {
+        if (chunks.length === 0) {
+          finalize(null)
+          return
+        }
+
+        const blobType = mimeType || 'video/webm'
+        finalize(new Blob(chunks, { type: blobType }))
+      }
+
+      try {
+        recorder.start()
+      } catch {
+        finalize(null)
+        return
+      }
+
+      timeoutId = setTimeout(() => {
+        if (recorder && recorder.state !== 'inactive') {
+          recorder.stop()
+        } else {
+          finalize(null)
+        }
+      }, Math.max(600, durationMs))
+    })
   }
 
   cleanup() {
-    this.stopCameraStream()
     this.stopScreenShare()
-    if (this.videoElement && this.videoElement.parentNode) document.body.removeChild(this.videoElement)
-    if (this.screenVideoElement && this.screenVideoElement.parentNode) document.body.removeChild(this.screenVideoElement)
+    this.stopCamera()
+
+    if (this.videoElement && this.videoElement.parentNode) {
+      document.body.removeChild(this.videoElement)
+    }
+
     this.videoElement = null
-    this.screenVideoElement = null
     this.canvasElement = null
     this.isInitialized = false
   }
 }
+

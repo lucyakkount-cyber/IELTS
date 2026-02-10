@@ -1,17 +1,12 @@
-// managers/audioManager.js
 export class AudioManager {
-  constructor() {
-    this.audioCtx = null
-    this.analyser = null
-    this.nextStartTime = 0
-    this.mouthRaf = null
-    this.activeSources = []
-
-    // Callbacks for Animation Sync
-    this.onSpeechStart = null
-    this.onSpeechEnd = null
-    this.isPlaying = false
-  }
+  audioCtx = null
+  analyser = null
+  nextStartTime = 0
+  mouthRaf = null
+  activeSources = []
+  onSpeechStart = null
+  onSpeechEnd = null
+  isPlaying = false
 
   async initialize() {
     if (this.audioCtx) return
@@ -22,16 +17,21 @@ export class AudioManager {
     console.log(`🔊 Audio System Ready`)
   }
 
-  setSpeechCallbacks(onStart, onEnd) {
-    this.onSpeechStart = onStart
-    this.onSpeechEnd = onEnd
+  async queueAudio(int16Data) {
+    // This method replaces "playChunk" to match the AIClient implementation which sends int16
+    // We assume the system calls queueAudio when data arrives
+    // We need a reference to the VRM instance to drive lip sync.
+    // In this simplified architecture, we'll try to find it on the window or pass it differently.
+    // For now, let's assume `window.currentVrm` exists or we just play audio.
+    const vrm = window.currentVrm
+    await this.playChunk(int16Data, vrm)
   }
 
   async playChunk(int16Data, vrm = null) {
     if (!this.audioCtx) await this.initialize()
+    if (!this.audioCtx) return
     if (this.audioCtx.state === 'suspended') await this.audioCtx.resume()
 
-    // ⚡ SIGNAL START: If we weren't playing, trigger the "Start" callback
     if (!this.isPlaying) {
       this.isPlaying = true
       if (this.onSpeechStart) this.onSpeechStart()
@@ -65,16 +65,13 @@ export class AudioManager {
 
   startMouthSync(vrm) {
     const tick = () => {
-      // ⚡ CHECK FOR SILENCE/END
-      if (this.audioCtx.currentTime > this.nextStartTime + 0.1) {
-        // 0.1s buffer
+      if (!this.audioCtx || !this.analyser) return
 
-        // Stop Lip Sync
+      if (this.audioCtx.currentTime > this.nextStartTime + 0.1) {
         vrm.expressionManager?.setValue('aa', 0)
         vrm.expressionManager?.update()
         this.mouthRaf = null
 
-        // ⚡ SIGNAL END: Trigger the "Stop" callback
         if (this.isPlaying) {
           this.isPlaying = false
           if (this.onSpeechEnd) this.onSpeechEnd()

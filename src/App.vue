@@ -1,695 +1,443 @@
-<template>
+﻿<template>
   <div
-    class="relative w-full h-screen bg-gradient-to-br from-[#0a0e17] via-[#0f1419] to-[#0a0e17] overflow-hidden"
+    class="app-shell relative h-screen w-full overflow-hidden select-none"
+    @dragenter.prevent="handleDrag"
+    @dragover.prevent="handleDrag"
+    @dragleave.prevent="handleDrag"
+    @drop.prevent="handleDrop"
   >
-    <div class="absolute inset-0 opacity-20 pointer-events-none">
-      <div
-        class="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500 rounded-full mix-blend-screen filter blur-3xl animate-pulse"
-      ></div>
-      <div
-        class="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500 rounded-full mix-blend-screen filter blur-3xl animate-pulse"
-        style="animation-delay: 1s"
-      ></div>
-    </div>
-
-    <canvas ref="canvasRef" class="absolute inset-0 w-full h-full"></canvas>
-
-    <div class="absolute top-4 left-4 flex items-center space-x-2 z-10">
-      <div
-        class="w-3 h-3 rounded-full transition-all duration-300"
-        :class="
-          isLiveMode ? 'bg-red-500 animate-pulse' : systemReady ? 'bg-green-500' : 'bg-yellow-500'
-        "
-      ></div>
-      <span
-        class="text-white text-sm font-medium backdrop-blur-md bg-black/30 px-3 py-1 rounded-full border border-white/10"
-      >
-        {{ isLiveMode ? '🔴 LIVE (Streaming)' : systemStatus }}
-      </span>
-    </div>
+    <div class="app-backdrop absolute inset-0 z-0"></div>
+    <div class="app-vignette absolute inset-0 z-0"></div>
 
     <div
-      v-if="showPerformance"
-      class="absolute top-4 right-4 bg-black/70 backdrop-blur-md text-white p-3 rounded-lg text-xs font-mono border border-white/10 z-10"
+      class="absolute inset-0 z-50 pointer-events-none transition-opacity duration-500"
+      :class="loadingState.progress >= 100 ? 'opacity-0' : 'opacity-100'"
     >
-      <div class="font-bold mb-2 text-green-400">⚡ Performance</div>
-      <div>FPS: {{ fps }}</div>
-      <div>Processing: {{ isProcessing ? 'Active' : 'Idle' }}</div>
-      <div>Speaking: {{ isSpeaking ? 'Yes' : 'No' }}</div>
+      <SciFiLoader
+        :progress="loadingState.progress"
+        :stage="loadingState.stage"
+        :detail="loadingState.detail"
+      />
     </div>
 
-    <div
-      class="absolute bottom-[30px] left-1/2 -translate-x-1/2 w-[calc(100%-40px)] max-w-[1000px] z-20"
-    >
-      <form
-        class="bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl shadow-2xl rounded-3xl p-4 grid grid-cols-[auto_1fr_auto] gap-3 border border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 hover:shadow-3xl"
-        @submit.prevent="sendMessage"
+    <canvas ref="canvasRef" class="absolute inset-0 z-0 block h-full w-full outline-none"></canvas>
+
+    <Transition name="fade">
+      <div
+        v-if="dragActive"
+        class="absolute inset-0 z-40 m-3 sm:m-6 flex items-center justify-center rounded-3xl border border-[color:var(--accent-cyan)]/40 bg-[color:var(--surface-strong)]/45 backdrop-blur-xl"
       >
-        <button
-          type="button"
-          class="flex items-center justify-center w-11 h-11 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-all duration-200 group"
-          @click="setupDragAndDrop"
-          title="Upload VRM"
-        >
-          <PlusIcon
-            class="w-6 h-6 text-gray-600 dark:text-gray-300 group-hover:rotate-90 transition-transform duration-300"
-          />
-        </button>
+        <div class="rounded-2xl border border-[color:var(--accent-cyan)]/35 px-8 py-6 text-center">
+          <p class="text-[11px] font-mono uppercase tracking-[0.22em] text-[color:var(--text-muted)]">
+            Drag and Drop
+          </p>
+          <p class="mt-2 text-xl sm:text-2xl font-semibold tracking-wide text-[color:var(--text-primary)]">
+            Upload VRM Avatar
+          </p>
+        </div>
+      </div>
+    </Transition>
 
-        <textarea
-          ref="textareaRef"
-          v-model="userInput"
-          rows="1"
-          placeholder="Type to chat or click Mic for Live Mode..."
-          class="flex-1 resize-none overflow-hidden bg-transparent focus:outline-none px-2 py-2 text-gray-900 dark:text-gray-100 placeholder-gray-400 font-medium"
-          @input="autoResize"
-          @keydown.enter.exact.prevent="sendMessage"
-          :disabled="isProcessing || !systemReady || isLiveMode"
-        ></textarea>
-
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            @click="toggleLiveMode"
-            :disabled="!systemReady"
-            class="flex items-center justify-center w-11 h-11 rounded-full transition-all duration-200 disabled:opacity-50"
-            :class="
-              isLiveMode
-                ? 'bg-red-600 text-white shadow-lg shadow-red-500/50 animate-pulse ring-2 ring-red-400 ring-offset-2 ring-offset-gray-900'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
-            "
-            title="Toggle Live Conversation"
+    <div class="absolute left-0 top-0 z-20 w-full p-4 sm:p-6 pointer-events-none">
+      <div class="flex items-start justify-between gap-3 sm:gap-4">
+        <div class="hud-panel pointer-events-auto">
+          <div class="flex items-center gap-2">
+            <span
+              class="h-2.5 w-2.5 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.06)]"
+              :class="
+                isConnected
+                  ? 'bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.8)]'
+                  : 'bg-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.55)]'
+              "
+            ></span>
+            <p class="text-[11px] font-mono uppercase tracking-[0.18em] text-[color:var(--text-secondary)]">
+              {{ isConnected ? 'Live Session Active' : 'System Standby' }}
+            </p>
+          </div>
+          <p class="mt-2 text-sm text-[color:var(--text-muted)]">
+            {{ isConnected ? 'Voice link stable' : 'Connect to start voice + vision tools' }}
+          </p>
+          <p
+            v-if="isSharingScreen"
+            class="mt-2 inline-flex items-center rounded-full border border-sky-300/30 bg-sky-500/12 px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-sky-200"
           >
-            <MicrophoneIcon class="w-6 h-6" />
-          </button>
-
-          <button
-            type="submit"
-            :disabled="isProcessing || !systemReady || !userInput.trim() || isLiveMode"
-            class="flex items-center justify-center w-11 h-11 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
-          >
-            <PaperAirplaneIcon v-if="!isProcessing" class="w-5 h-5" />
-            <div
-              v-else
-              class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
-            ></div>
-          </button>
+            Screen share enabled
+          </p>
         </div>
-      </form>
 
-      <div v-if="!hasInteracted && systemReady" class="mt-3 text-center">
-        <p class="text-gray-400 text-sm animate-pulse">
-          💡 Click the Mic to start a real-time conversation!
-        </p>
+        <div class="hud-panel min-w-[140px] text-right pointer-events-auto">
+          <p class="text-[10px] font-mono uppercase tracking-[0.16em] text-[color:var(--text-muted)]">
+            Render FPS
+          </p>
+          <p class="mt-1 text-xl font-semibold text-[color:var(--text-primary)]">{{ fps }}</p>
+          <p class="mt-1 text-[11px] text-[color:var(--text-muted)]">
+            {{ systemReady ? 'Scene ready' : 'Initializing scene' }}
+          </p>
+        </div>
       </div>
     </div>
 
-    <div
-      v-if="!systemReady"
-      class="absolute inset-0 flex items-center justify-center bg-black/90 backdrop-blur-md z-50 transition-opacity duration-500"
+    <ChatSidebar
+      v-if="showChat"
+      :chatHistory="chatHistory"
+      @clear-history="clearHistory"
+      @close="showChat = false"
+    />
+
+    <SettingsPanel
+      v-if="showSettings"
+      v-model:avatarScale="avatarScale"
+      v-model:lookAtUserEnabled="lookAtUserEnabled"
+      v-model:lookAtScreenEnabled="lookAtScreenEnabled"
+      @close="showSettings = false"
+    />
+
+    <ControlDock
+      :isReady="systemReady"
+      :isConnected="isConnected"
+      :isSharingScreen="isSharingScreen"
+      :showChat="showChat"
+      :showSettings="showSettings"
+      @toggle-connection="toggleConnection"
+      @toggle-screen-share="toggleScreenShare"
+      @toggle-chat="showChat = !showChat"
+      @toggle-settings="showSettings = !showSettings"
+      @file-upload="loadVRMFile"
+    />
+
+    <TransitionGroup
+      name="toast"
+      tag="div"
+      class="pointer-events-none absolute right-4 top-24 z-50 flex w-[calc(100%-2rem)] flex-col items-end gap-3 sm:right-6 sm:w-auto"
     >
       <div
-        class="bg-white dark:bg-gray-900 rounded-2xl p-8 max-w-md mx-4 shadow-2xl border border-gray-700"
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="toast-card pointer-events-auto flex w-full max-w-[360px] items-start gap-3 rounded-2xl border px-4 py-3"
       >
-        <div class="flex flex-col items-center space-y-6">
-          <div
-            class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"
-          ></div>
-          <div class="text-center space-y-2">
-            <div class="font-bold text-xl text-white">{{ loadingTitle }}</div>
-            <div class="text-sm text-blue-400">{{ systemStatus }}</div>
-          </div>
-          <div class="w-full bg-gray-700 rounded-full h-2 overflow-hidden w-64">
-            <div
-              class="bg-gradient-to-r from-blue-500 to-purple-500 h-full transition-all duration-500 ease-out"
-              :style="{ width: loadingProgress + '%' }"
-            ></div>
-          </div>
+        <div class="mt-0.5 shrink-0">
+          <CheckCircleIcon v-if="toast.type === 'success'" class="h-5 w-5 text-emerald-400" />
+          <XCircleIcon v-else-if="toast.type === 'error'" class="h-5 w-5 text-rose-400" />
+          <InformationCircleIcon v-else class="h-5 w-5 text-cyan-300" />
+        </div>
+        <div class="min-w-0">
+          <p class="text-sm font-semibold text-[color:var(--text-primary)]">{{ toast.title }}</p>
+          <p class="mt-1 text-xs leading-relaxed text-[color:var(--text-muted)]">
+            {{ toast.message }}
+          </p>
         </div>
       </div>
-    </div>
-
-    <div
-      v-if="showDebug"
-      class="absolute bottom-4 left-4 bg-black/80 backdrop-blur-md text-white p-4 rounded-xl text-xs font-mono max-w-xs shadow-2xl border border-white/10 z-10"
-    >
-      <div class="mb-2 font-bold text-green-400 flex justify-between">
-        <span>🔧 Debug Info</span>
-        <span class="text-gray-500 cursor-pointer" @click="showDebug = false">×</span>
-      </div>
-      <div class="space-y-1">
-        <div>
-          Status: <span :class="getStatusClass()">{{ systemStatus }}</span>
-        </div>
-        <div>
-          Mode:
-          <span :class="isLiveMode ? 'text-red-400' : 'text-blue-400'">{{
-            isLiveMode ? 'LIVE' : 'Text'
-          }}</span>
-        </div>
-        <div>
-          VRM: <span class="text-green-400">{{ vrm ? '✓' : '✗' }}</span>
-        </div>
-        <div>
-          Speaking:
-          <span :class="isSpeaking ? 'text-red-400' : 'text-gray-400'">{{
-            isSpeaking ? '🗣️' : '🔇'
-          }}</span>
-        </div>
-        <div class="pt-2 mt-2 border-t border-gray-700">
-          <button @click="togglePerformance" class="text-blue-400 hover:text-blue-300 underline">
-            {{ showPerformance ? 'Hide' : 'Show' }} Performance
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="absolute top-20 right-4 space-y-2 z-50">
-      <transition-group name="toast">
-        <div
-          v-for="toast in toasts"
-          :key="toast.id"
-          class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 max-w-sm backdrop-blur-md border border-gray-200 dark:border-gray-700 flex items-start space-x-3"
-        >
-          <component
-            :is="getToastIcon(toast.type)"
-            class="w-6 h-6 flex-shrink-0"
-            :class="getToastColor(toast.type)"
-          />
-          <div>
-            <p class="font-medium text-gray-900 dark:text-white">{{ toast.title }}</p>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">{{ toast.message }}</p>
-          </div>
-        </div>
-      </transition-group>
-    </div>
-
-    <audio ref="audioRef" class="hidden"></audio>
+    </TransitionGroup>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import {
-  PlusIcon,
-  PaperAirplaneIcon,
-  MicrophoneIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  InformationCircleIcon,
-} from '@heroicons/vue/24/solid'
-import * as THREE from 'three'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { CheckCircleIcon, InformationCircleIcon, XCircleIcon } from '@heroicons/vue/24/solid'
 
-// Import Managers
-import { SceneManager } from '../managers/sceneManager.js'
-import { VRMLoader } from '../managers/vrmLoader.js'
-import { AnimationManager } from '../managers/animationManager.js'
-import { AudioManager } from '../managers/audioManager.js'
-import { AIClient } from '../managers/aiClient.js'
-import { ConfigManager } from '../managers/configManager.js'
-import { VisionManager } from '../managers/visionManager.js'
+import ChatSidebar from './components/ChatSidebar.vue'
+import ControlDock from './components/ControlDock.vue'
+import SciFiLoader from './components/SciFiLoader.vue'
+import SettingsPanel from './components/SettingsPanel.vue'
 
-// --- State ---
+import { createVRMChatSystem } from '../managers/index.js'
+
 const canvasRef = ref(null)
-const audioRef = ref(null)
-const textareaRef = ref(null)
-const userInput = ref('')
-const showDebug = ref(true)
-const showPerformance = ref(false)
-const isLiveMode = ref(false)
-const isProcessing = ref(false)
-const isSpeaking = ref(false)
-const systemStatus = ref('Initializing...')
+const system = ref(null)
 const systemReady = ref(false)
-const hasInteracted = ref(false)
-const loadingProgress = ref(0)
-const loadingTitle = ref('Loading VRM Chat System')
+const isConnected = ref(false)
+const isSharingScreen = ref(false)
+const dragActive = ref(false)
+const showChat = ref(false)
+const showSettings = ref(false)
 const fps = ref(0)
 const toasts = ref([])
-const userName = ref(localStorage.getItem('vrm_user_name') || null)
-const userMemories = ref(JSON.parse(localStorage.getItem('vrm_user_memories') || '{}'))
-
-// --- Manager Instances ---
-let sceneManager = null
-let vrmLoader = null
-let animationManager = null
-let audioManager = null
-let aiClient = null
-let configManager = null
-let visionManager = null
-let vrm = null
-let fpsInterval = null
-
-// --- Initialization ---
-onMounted(async () => {
-  await initializeManagers()
-  startFPSCounter()
-
-  window.addEventListener('keydown', (e) => {
-    // Debug Toggle
-    if (e.key === 'd' && e.ctrlKey) {
-      e.preventDefault()
-      showDebug.value = !showDebug.value
-    }
-
-    // VRM Scaling (Shift + / -)
-    if (vrm && vrm.scene) {
-      const scaleStep = 0.1
-      if (e.shiftKey && (e.key === '+' || e.key === '=')) {
-        vrm.scene.scale.x += scaleStep
-        vrm.scene.scale.y += scaleStep
-        vrm.scene.scale.z += scaleStep
-        showToast('Scale Up', `Scale: ${vrm.scene.scale.x.toFixed(2)}`, 'info', 1000)
-      }
-      if (e.shiftKey && (e.key === '_' || e.key === '-')) {
-        vrm.scene.scale.x = Math.max(0.1, vrm.scene.scale.x - scaleStep)
-        vrm.scene.scale.y = Math.max(0.1, vrm.scene.scale.y - scaleStep)
-        vrm.scene.scale.z = Math.max(0.1, vrm.scene.scale.z - scaleStep)
-        showToast('Scale Down', `Scale: ${vrm.scene.scale.x.toFixed(2)}`, 'info', 1000)
-      }
-      if (e.shiftKey && e.key === ')') {
-        vrm.scene.scale.set(2.5, 2.5, 2.5) // Reset to default
-        showToast('Scale Reset', 'Reset to 2.5', 'info', 1000)
-      }
-    }
-  })
+const loadingState = ref({
+  progress: 0,
+  stage: 'Booting Engine',
+  detail: 'Preparing workspace',
 })
 
-async function initializeManagers() {
-  try {
-    console.log('🚀 Initializing VRM Chat System...')
+const avatarScale = ref(parseFloat(localStorage.getItem('vrm_avatar_scale') || '2.0'))
+const lookAtUserEnabled = ref(localStorage.getItem('vrm_look_at_user') !== 'false')
+const lookAtScreenEnabled = ref(localStorage.getItem('vrm_look_at_screen') !== 'false')
+const chatHistory = ref([])
 
-    // 1. Config
-    loadingProgress.value = 10
-    configManager = new ConfigManager()
-    await configManager.loadConfig()
-    await new Promise((r) => setTimeout(r, 200))
-
-    // 2. Scene
-    loadingProgress.value = 25
-    sceneManager = new SceneManager(canvasRef.value)
-    if (!sceneManager.initialize()) throw new Error('Scene init failed')
-    await new Promise((r) => setTimeout(r, 200))
-
-    // 3. VRM Loader
-    loadingProgress.value = 40
-    vrmLoader = new VRMLoader()
-
-    // 4. Audio Playback
-    loadingProgress.value = 55
-    audioManager = new AudioManager()
-    await audioManager.initialize()
-
-    // 5. AI Client
-    loadingProgress.value = 75
-    aiClient = new AIClient(configManager.getApiKey(), configManager.getModel())
-
-    // 🆕 RESTORE HISTORY ON LOAD
-    // This pulls the old conversation (with timestamps) so the AI remembers context.
-    const savedHistory = localStorage.getItem('vrm_chat_history')
-    if (savedHistory) {
-      try {
-        const parsed = JSON.parse(savedHistory)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          aiClient.setHistory(parsed)
-          console.log(`📜 History loaded: ${parsed.length} entries.`)
-        }
-      } catch (e) {
-        console.error('Failed to parse history:', e)
-      }
-    }
-
-    // 5b. Vision Manager
-    visionManager = new VisionManager()
-    await visionManager.initialize()
-
-    // 6. Load VRM & Animations
-    loadingProgress.value = 85
-    await loadVRMModel()
-
-    // 7. Final Setup
-    loadingProgress.value = 95
-    setupDragAndDrop()
-    sceneManager.startRenderLoop()
-
-    loadingProgress.value = 100
-    systemStatus.value = 'Ready'
-    systemReady.value = true
-    showToast('System Ready', 'Welcome to VRM Chat!', 'success')
-    console.log('✅ System Fully Initialized')
-  } catch (error) {
-    console.error('❌ Init Failed:', error)
-    systemStatus.value = `Error: ${error.message}`
-    showToast('Initialization Failed', error.message, 'error', 5000)
-  }
+try {
+  const saved = localStorage.getItem('vrm_chat_history')
+  if (saved) chatHistory.value = JSON.parse(saved)
+} catch {
+  chatHistory.value = []
 }
 
-async function loadVRMModel() {
-  try {
-    const vrmConfig = configManager.getVRMConfig()
+watch(avatarScale, (val) => {
+  localStorage.setItem('vrm_avatar_scale', val.toString())
+  if (system.value) system.value.setAvatarScale(val)
+})
 
-    // A. Load VRM
-    vrm = await vrmLoader.loadVRMFromPath(vrmConfig.model_path)
-    sceneManager.addToScene(vrm.scene)
-    console.log('✅ VRM Model placed in scene')
-
-    // B. Initialize Animation Manager
-    animationManager = new AnimationManager(vrm)
-    await animationManager.initialize()
-
-    // C. Lip Sync Callbacks
-    if (audioManager && audioManager.setSpeechCallbacks) {
-      audioManager.setSpeechCallbacks(
-        () => {
-          isSpeaking.value = true
-          if (animationManager) animationManager.setSpeakingState(true)
-        },
-        () => {
-          isSpeaking.value = false
-          if (animationManager) animationManager.setSpeakingState(false)
-        },
-      )
-    }
-
-    // D. Update Loop
-    sceneManager.updateCallbacks = []
-    sceneManager.addUpdateCallback((delta) => {
-      if (!vrm || !animationManager) return
-      animationManager.update(delta)
-      vrm.update(delta)
-
-      const mousePos = sceneManager.getMousePosition()
-      if (vrm.lookAt) {
-        vrm.lookAt.target = new THREE.Object3D()
-        vrm.lookAt.target.position.set(mousePos.x, mousePos.y + 1.5, 2.0)
-        vrm.lookAt.update(delta)
-      }
+watch(lookAtUserEnabled, (value) => {
+  localStorage.setItem('vrm_look_at_user', value ? 'true' : 'false')
+  if (system.value) {
+    system.value.setLookAtOptions({
+      user: value,
+      screen: lookAtScreenEnabled.value,
     })
-  } catch (error) {
-    console.error('❌ VRM Load Error:', error)
-    throw error
+  }
+  showToast(
+    'Look At User',
+    value ? 'AI can now look at you through camera.' : 'AI look-at-user is disabled.',
+    'info',
+  )
+})
+
+watch(lookAtScreenEnabled, (value) => {
+  localStorage.setItem('vrm_look_at_screen', value ? 'true' : 'false')
+  if (system.value) {
+    system.value.setLookAtOptions({
+      user: lookAtUserEnabled.value,
+      screen: value,
+    })
+  }
+  showToast(
+    'Look At Screen',
+    value ? 'AI can now analyze your shared screen.' : 'AI look-at-screen is disabled.',
+    'info',
+  )
+})
+
+watch(
+  chatHistory,
+  (val) => {
+    localStorage.setItem('vrm_chat_history', JSON.stringify(val))
+  },
+  { deep: true },
+)
+
+let cleanupSystem = null
+let fpsInterval = null
+let dragDepth = 0
+let toastCounter = 0
+
+const updateLoadingState = (next = {}) => {
+  const progress = Number.isFinite(next.progress) ? next.progress : loadingState.value.progress
+  loadingState.value = {
+    progress: Math.max(loadingState.value.progress, Math.min(100, Math.round(progress))),
+    stage: next.stage || loadingState.value.stage,
+    detail: next.detail ?? loadingState.value.detail,
   }
 }
 
-// --- LIVE MODE HANDLER (Microphone + AI Animations) ---
-async function toggleLiveMode() {
-  if (isLiveMode.value) {
-    if (aiClient) aiClient.disconnect()
-    isLiveMode.value = false
-    systemStatus.value = 'Ready'
+onMounted(async () => {
+  if (!canvasRef.value) return
 
-    // 🛑 STOP VISION WHEN TOGGLING OFF
-    if (visionManager) {
-      visionManager.stopScreenShare()
-      visionManager.stopCameraStream()
-    }
-  } else {
-    isLiveMode.value = true
-    systemStatus.value = 'Connecting Live...'
-
-    // ⚡ 1. GET LIST
-    const availableAnims = animationManager ? animationManager.getAvailableAnimations() : []
-
-    // ⚡ 2. DYNAMIC PROMPT
-    let nameInstruction = ''
-    if (userName.value) {
-      nameInstruction = `\nUser's name is "${userName.value}". Call him by his name often.`
-    } else {
-      nameInstruction = `\nUser's name is UNKNOWN. Start by asking "Who are you?" or "What's your name?". Do NOT assume his name correctly until he tells you. Once he tells you, use the 'set_user_name' tool to save it.`
-    }
-
-    // ⚡ 3. MEMORIES
-    let memoryInstruction = ''
-    const memories = Object.entries(userMemories.value)
-    if (memories.length > 0) {
-      memoryInstruction =
-        `\n\n[USER_MEMORIES]\n` +
-        memories.map(([k, v]) => `- ${k}: ${v}`).join('\n') +
-        `\n[END_MEMORIES]\nUse these facts to personalize the conversation.`
-    }
-
-    const prompt =
-      configManager.getSystemPrompt() +
-      nameInstruction +
-      memoryInstruction +
-      `\n\nIMPORTANT: Use 'trigger_animation' to act. Available animations: ${availableAnims.join(', ')}.` +
-      "\nUse 'set_expression(expr, duration)' for emotions (happy, sad, angry, surprised, excited)." +
-      "\nUse 'save_memory(key, value)' to remember important new facts about the user." +
-      "\nUse 'delete_memory(key)' to remove a specific memory if the user asks you to forget it."
-
-    try {
-      await aiClient.connectLive(
-        prompt,
-        // Audio
-        (pcmData) => audioManager.playChunk(pcmData, vrm),
-        // Body
-        (animName) => {
-          console.log('🤖 Body:', animName)
-          if (animationManager) animationManager.triggerNamedAnimation(animName)
-        },
-        // Face
-        (faceName, duration) => {
-          console.log(`🤖 Face: ${faceName}`)
-          if (animationManager) animationManager.setExpression(faceName, duration)
-        },
-        // Vision (Video Stream)
-        async () => {
-          console.log('🤖 Vision Stream Requested')
-          await visionManager.startCameraStream((base64Frame) => {
-            if (aiClient) aiClient._sendRealtimeImage(base64Frame)
-          })
-          return true
-        },
-        // Screen
-        async () => {
-          console.log('🖥️ Screen Capture Requested')
-          await visionManager.startScreenShare((base64Frame) => {
-            if (aiClient) aiClient._sendRealtimeImage(base64Frame)
-          })
-          return true
-        },
-        // Disconnect Handler
-        (reason) => {
-          console.log('🔌 Disconnected:', reason)
-          isLiveMode.value = false
-          systemStatus.value = 'Ready'
-
-          // 🛑 ENSURE VISION STOPS ON AUTO-DISCONNECT TOO
-          if (visionManager) {
-            visionManager.stopScreenShare()
-            visionManager.stopCameraStream()
-          }
-        },
-        // Available Animations
-        availableAnims,
-        // Name Set Handler
-        (name) => {
-          console.log('💾 Setting User Name:', name)
-          userName.value = name
-          localStorage.setItem('vrm_user_name', name)
-          showToast('Name Saved', `Nice to meet you, ${name}!`, 'success')
-        },
-        // Memory Saved Handler
-        (key, value) => {
-          console.log(`💾 Memory Saved: ${key} = ${value}`)
-          userMemories.value[key] = value
-          localStorage.setItem('vrm_user_memories', JSON.stringify(userMemories.value))
-          showToast('Memory Saved', `Remembered: ${key}`, 'success')
-        },
-        // Memory Deleted Handler
-        (key) => {
-          console.log(`🗑️ Memory Deleted: ${key}`)
-          delete userMemories.value[key]
-          localStorage.setItem('vrm_user_memories', JSON.stringify(userMemories.value))
-          showToast('Memory Deleted', `Forgot: ${key}`, 'info')
-        },
-        // 🆕 HISTORY CHANGE HANDLER (Saves Transcript Immediately)
-        (updatedHistory) => {
-          localStorage.setItem('vrm_chat_history', JSON.stringify(updatedHistory))
-        },
-        // 🔔 System Messages (Toasts)
-        (title, msg, type) => showToast(title, msg, type),
-      )
-      systemStatus.value = '🔴 LIVE'
-    } catch (e) {
-      console.error(e)
-      isLiveMode.value = false
-    }
-  }
-}
-
-// --- TEXT MESSAGE HANDLER (Typing) ---
-async function sendMessage() {
-  if (!userInput.value.trim() || isProcessing.value) return
+  updateLoadingState({ progress: 8, stage: 'Booting Engine', detail: 'Initializing client' })
 
   try {
-    if (animationManager) animationManager.notifyInteraction()
+    const sys = await createVRMChatSystem(canvasRef.value, {
+      onLoadProgress: updateLoadingState,
+    })
 
-    isProcessing.value = true
-    hasInteracted.value = true
-    const message = userInput.value.trim()
-    userInput.value = ''
-    autoResize()
+    system.value = sys
+    cleanupSystem = sys.cleanup
+    sys.setLookAtOptions({
+      user: lookAtUserEnabled.value,
+      screen: lookAtScreenEnabled.value,
+    })
 
-    console.log('📤 Sending Text:', message)
+    sys.visionManager.onStateChange = (isActive) => {
+      isSharingScreen.value = isActive
+      showToast(
+        'Screen Share',
+        isActive ? 'Screen sharing active' : 'Screen sharing stopped',
+        isActive ? 'success' : 'info',
+      )
+    }
 
-    const { processMessageOptimized } = await import('../managers/utils.js')
-    await processMessageOptimized(
-      message,
-      aiClient,
-      audioManager,
-      animationManager,
-      vrm,
-      configManager,
-      audioRef.value,
-    )
-
-    // Save to LocalStorage (Text Mode)
-    if (aiClient && aiClient.getHistory) {
-      const history = aiClient.getHistory()
-      localStorage.setItem('vrm_chat_history', JSON.stringify(history))
+    if (sys.vrm) {
+      systemReady.value = true
+      sys.setAvatarScale(avatarScale.value)
+      updateLoadingState({ progress: 100, stage: 'System Ready', detail: 'Avatar online' })
+    } else {
+      systemReady.value = true
+      updateLoadingState({
+        progress: 100,
+        stage: 'System Ready',
+        detail: 'Upload a VRM model to continue',
+      })
+      showToast('Avatar Missing', 'Default model not found. Upload a .vrm file.', 'info')
     }
   } catch (error) {
-    console.error('❌ Message Error:', error)
-    showToast('Error', error.message, 'error')
-  } finally {
-    isProcessing.value = false
+    console.error(error)
+    updateLoadingState({ progress: 100, stage: 'Initialization Failed', detail: error.message })
+    showToast('Initialization Failed', error.message, 'error')
   }
-}
 
-// --- Drag & Drop Handler ---
-function setupDragAndDrop() {
-  sceneManager.setupDragAndDrop(async (file) => {
-    try {
-      console.log('🔄 Loading dropped VRM...')
-      systemReady.value = false
-      loadingProgress.value = 50
-
-      if (vrm) {
-        sceneManager.removeFromScene(vrm.scene)
-        vrmLoader.cleanupVRM(vrm)
-      }
-
-      vrm = await vrmLoader.loadVRMFromFile(file)
-      sceneManager.addToScene(vrm.scene)
-
-      animationManager = new AnimationManager(vrm)
-      await animationManager.initialize()
-
-      systemReady.value = true
-      loadingProgress.value = 100
-      showToast('Success', 'New model loaded!', 'success')
-    } catch (e) {
-      console.error(e)
-      showToast('Error', 'Failed to load VRM', 'error')
-      systemReady.value = true
-    }
-  })
-}
-
-// --- UI Helpers ---
-function togglePerformance() {
-  showPerformance.value = !showPerformance.value
-}
-
-function autoResize() {
-  const ta = textareaRef.value
-  if (ta) {
-    ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'
-  }
-}
-
-const getStatusClass = () => {
-  if (isLiveMode.value) return 'text-red-400'
-  if (systemStatus.value === 'Ready') return 'text-green-400'
-  return 'text-yellow-400'
-}
-
-const getToastIcon = (type) =>
-  type === 'success' ? CheckCircleIcon : type === 'error' ? XCircleIcon : InformationCircleIcon
-const getToastColor = (type) =>
-  type === 'success' ? 'text-green-500' : type === 'error' ? 'text-red-500' : 'text-blue-500'
-
-function showToast(title, message, type = 'info', duration = 3000) {
-  const id = Date.now()
-  toasts.value.push({ id, title, message, type })
-  setTimeout(() => {
-    toasts.value = toasts.value.filter((t) => t.id !== id)
-  }, duration)
-}
-
-function startFPSCounter() {
-  let lastTime = performance.now()
-  let frameCount = 0
   fpsInterval = setInterval(() => {
-    const time = performance.now()
-    fps.value = Math.round((frameCount * 1000) / (time - lastTime))
-    frameCount = 0
-    lastTime = time
+    fps.value = system.value?.sceneManager?.getCurrentFps?.() || 0
   }, 1000)
-  const count = () => {
-    frameCount++
-    requestAnimationFrame(count)
-  }
-  count()
-}
+})
 
 onBeforeUnmount(() => {
   if (fpsInterval) clearInterval(fpsInterval)
-  if (isLiveMode.value) toggleLiveMode()
-  if (animationManager?.cleanup) animationManager.cleanup()
-  if (audioManager) audioManager.cleanup()
-  if (sceneManager) sceneManager.cleanup()
-  if (vrm && vrmLoader) vrmLoader.cleanupVRM(vrm)
-  if (visionManager) visionManager.cleanup()
+  if (cleanupSystem) cleanupSystem()
 })
+
+function showToast(title, message, type = 'info') {
+  toastCounter += 1
+  const id = toastCounter
+  const normalizedType = ['success', 'error', 'info'].includes(type) ? type : 'info'
+
+  toasts.value.push({
+    id,
+    title,
+    message,
+    type: normalizedType,
+  })
+
+  setTimeout(() => {
+    toasts.value = toasts.value.filter((toast) => toast.id !== id)
+  }, 4200)
+}
+
+const toggleConnection = async () => {
+  if (!system.value || !systemReady.value) return
+
+  if (!system.value.vrm) {
+    showToast('No Avatar', 'Load a VRM model before connecting.', 'error')
+    return
+  }
+
+  if (isConnected.value) {
+    system.value.aiClient.disconnect('User ended call')
+    isConnected.value = false
+    return
+  }
+
+  showToast('Connecting', 'Establishing live voice session...', 'info')
+
+  try {
+    await system.value.connect(
+      chatHistory.value,
+      {
+        onUserNameSet: (name) => localStorage.setItem('vrm_user_name', name),
+        onMemorySaved: (key, value) => {
+          const memories = JSON.parse(localStorage.getItem('vrm_user_memories') || '{}')
+          memories[key] = value
+          localStorage.setItem('vrm_user_memories', JSON.stringify(memories))
+        },
+        onMemoryDeleted: (key) => {
+          const memories = JSON.parse(localStorage.getItem('vrm_user_memories') || '{}')
+          delete memories[key]
+          localStorage.setItem('vrm_user_memories', JSON.stringify(memories))
+        },
+        onSystemMessage: (title, msg, type) => showToast(title, msg, type),
+        onDisconnect: (reason) => {
+          isConnected.value = false
+          showToast('Call Ended', reason, 'info')
+        },
+        onTranscription: (role, text, isFinal) => {
+          const newHistory = [...chatHistory.value]
+          const lastMsg = newHistory[newHistory.length - 1]
+
+          if (!isFinal && lastMsg && lastMsg.role === role) {
+            lastMsg.text = text
+            lastMsg.timestamp = Date.now()
+            chatHistory.value = newHistory
+            return
+          }
+
+          if (isFinal) {
+            if (lastMsg && lastMsg.role === role && text.startsWith(lastMsg.text.substring(0, 10))) {
+              lastMsg.text = text
+              chatHistory.value = newHistory
+              return
+            }
+
+            chatHistory.value = [...newHistory, { role, text, timestamp: Date.now() }]
+            return
+          }
+
+          chatHistory.value = [...newHistory, { role, text, timestamp: Date.now() }]
+        },
+      },
+      '',
+      true,
+      localStorage.getItem('vrm_user_name'),
+    )
+
+    isConnected.value = true
+  } catch (error) {
+    console.error(error)
+    showToast('Connection Failed', error.message, 'error')
+    isConnected.value = false
+  }
+}
+
+const toggleScreenShare = async () => {
+  if (!system.value || !systemReady.value) return
+
+  if (isSharingScreen.value) {
+    await system.value.stopScreenShare()
+    return
+  }
+
+  try {
+    const started = await system.value.startScreenShare()
+    if (!started) {
+      showToast('Screen Share', 'Could not start screen sharing.', 'error')
+    }
+  } catch {
+    showToast('Screen Share', 'Screen share permission was blocked.', 'error')
+  }
+}
+
+const clearHistory = () => {
+  chatHistory.value = []
+  localStorage.removeItem('vrm_chat_history')
+}
+
+const handleDrag = (event) => {
+  if (event.type === 'dragenter') {
+    dragDepth += 1
+    dragActive.value = true
+    return
+  }
+
+  if (event.type === 'dragleave') {
+    dragDepth = Math.max(0, dragDepth - 1)
+    if (dragDepth === 0) {
+      dragActive.value = false
+    }
+    return
+  }
+
+  if (event.type === 'dragover') {
+    dragActive.value = true
+  }
+}
+
+const handleDrop = async (event) => {
+  dragDepth = 0
+  dragActive.value = false
+
+  if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+    await loadVRMFile(event.dataTransfer.files[0])
+  }
+}
+
+const loadVRMFile = async (file) => {
+  if (!file.name.toLowerCase().endsWith('.vrm')) {
+    showToast('Invalid File', 'Please upload a .vrm file.', 'error')
+    return
+  }
+
+  showToast('Loading Avatar', `Processing ${file.name}...`, 'info')
+  try {
+    await system.value?.loadNewVRM(file)
+    showToast('Avatar Updated', 'New model loaded successfully.', 'success')
+  } catch {
+    showToast('Load Failed', 'Could not load this VRM file.', 'error')
+  }
+}
 </script>
 
-<style scoped>
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-.toast-enter-active,
-.toast-leave-active {
-  transition: all 0.3s ease;
-}
-.toast-enter-from,
-.toast-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
-}
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-.backdrop-blur-md {
-  backdrop-filter: blur(12px);
-}
-</style>
