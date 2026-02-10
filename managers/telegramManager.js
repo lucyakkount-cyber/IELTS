@@ -1,5 +1,3 @@
-const TELEGRAM_API_BASE = 'https://api.telegram.org'
-
 const normalizeBoolean = (value, fallback = false) => {
   if (typeof value === 'boolean') return value
   if (typeof value !== 'string') return fallback
@@ -10,7 +8,7 @@ const normalizeBoolean = (value, fallback = false) => {
 }
 
 export class TelegramManager {
-  botToken = ''
+  relayBaseUrl = '/api/telegram'
   chatId = ''
   enabled = false
   debugUserId = ''
@@ -41,7 +39,7 @@ export class TelegramManager {
   }
 
   configure(config = {}) {
-    this.botToken = String(config.botToken || '').trim()
+    this.relayBaseUrl = this.normalizeRelayBase(config.relayBaseUrl)
     this.chatId = String(config.chatId || '').trim()
     this.debugUserId = String(config.debugUserId || '').trim()
     this.debugSessionId = String(config.debugSessionId || '').trim()
@@ -55,7 +53,7 @@ export class TelegramManager {
   }
 
   isActive() {
-    return this.enabled && this.botToken.length > 0
+    return this.enabled && this.relayBaseUrl.length > 0
   }
 
   shouldSendVideo() {
@@ -121,10 +119,11 @@ export class TelegramManager {
     }
   }
 
-  async notifyVisionCapture(source, imageBase64) {
+  async notifyVisionCapture(source, imageBase64, options = {}) {
     if (!this.isActive()) return false
     if (!imageBase64 || typeof imageBase64 !== 'string') return false
 
+    const forceSend = options && typeof options === 'object' && options.force === true
     const mediaKey = this.getVisionKey(source, 'photo')
     const now = Date.now()
     const signature = this.buildFrameSignature(imageBase64)
@@ -136,7 +135,7 @@ export class TelegramManager {
       lastSignature === signature &&
       now - lastSentAt < Math.max(this.visionCooldownMs, 60_000)
 
-    if (withinCooldown || repeatedFrame) {
+    if (!forceSend && (withinCooldown || repeatedFrame)) {
       return false
     }
 
@@ -161,14 +160,15 @@ export class TelegramManager {
     }
   }
 
-  async notifyVisionClip(source, clipBlob) {
+  async notifyVisionClip(source, clipBlob, options = {}) {
     if (!this.shouldSendVideo()) return false
     if (!clipBlob || clipBlob.size <= 0) return false
 
+    const forceSend = options && typeof options === 'object' && options.force === true
     const mediaKey = this.getVisionKey(source, 'video')
     const now = Date.now()
     const lastSentAt = this.lastVisionSentAt[mediaKey] || 0
-    if (this.visionCooldownMs > 0 && now - lastSentAt < this.visionCooldownMs) {
+    if (!forceSend && this.visionCooldownMs > 0 && now - lastSentAt < this.visionCooldownMs) {
       return false
     }
     this.lastVisionSentAt[mediaKey] = now
@@ -213,7 +213,7 @@ export class TelegramManager {
   }
 
   async fetchLatestChatId() {
-    const endpoint = `${TELEGRAM_API_BASE}/bot${this.botToken}/getUpdates?limit=10&timeout=0`
+    const endpoint = `${this.relayBaseUrl}/getUpdates?limit=10&timeout=0`
     const response = await fetch(endpoint)
 
     if (!response.ok) {
@@ -242,7 +242,7 @@ export class TelegramManager {
   }
 
   async post(method, formData) {
-    const endpoint = `${TELEGRAM_API_BASE}/bot${this.botToken}/${method}`
+    const endpoint = `${this.relayBaseUrl}/${method}`
     const response = await fetch(endpoint, {
       method: 'POST',
       body: formData,
@@ -293,6 +293,38 @@ export class TelegramManager {
     if (parsed < minMs) return minMs
     if (parsed > maxMs) return maxMs
     return Math.round(parsed)
+  }
+
+  normalizeRelayBase(value) {
+    const fallbackBase = '/api/telegram'
+    const rawBase = String(value || '').trim()
+    if (!rawBase) return fallbackBase
+
+    const unsafeTelegramOrigin = /api\.telegram\.org/i.test(rawBase)
+    const unsafeBotPath = /\/bot\d+:[A-Za-z0-9_-]+/i.test(rawBase)
+    if (unsafeTelegramOrigin || unsafeBotPath) {
+      console.warn('TelegramManager: blocked unsafe relay URL. Falling back to /api/telegram.')
+      return fallbackBase
+    }
+
+    if (rawBase.startsWith('/')) {
+      return rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase
+    }
+
+    try {
+      const parsed = new URL(rawBase, window.location.origin)
+      if (parsed.origin !== window.location.origin) {
+        console.warn(
+          'TelegramManager: relay URL must be same-origin. Falling back to /api/telegram.',
+        )
+        return fallbackBase
+      }
+
+      const normalizedPath = parsed.pathname || fallbackBase
+      return normalizedPath.endsWith('/') ? normalizedPath.slice(0, -1) : normalizedPath
+    } catch {
+      return fallbackBase
+    }
   }
 
   getVisionKey(source, mediaType) {

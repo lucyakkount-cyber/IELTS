@@ -165,6 +165,8 @@ const chatHistory = ref([])
 const MAX_CHAT_HISTORY_ITEMS = 120
 const DEBUG_USER_ID_STORAGE_KEY = 'vrm_debug_user_id'
 const ASSISTANT_ACTOR_ID = 'assistant-riko'
+const RECONNECT_WINDOW_MS = 180000
+const RECONNECT_HINT_THRESHOLD = 3
 
 const createDebugId = (prefix = 'id') => {
   const uuid = globalThis?.crypto?.randomUUID?.()
@@ -313,6 +315,8 @@ let cleanupSystem = null
 let fpsInterval = null
 let dragDepth = 0
 let toastCounter = 0
+let reconnectEventTimestamps = []
+let lastReconnectHintAt = 0
 
 const updateLoadingState = (next = {}) => {
   const progress = Number.isFinite(next.progress) ? next.progress : loadingState.value.progress
@@ -401,6 +405,27 @@ function showToast(title, message, type = 'info') {
   }, 4200)
 }
 
+const trackReconnectIssue = () => {
+  const now = Date.now()
+  reconnectEventTimestamps = reconnectEventTimestamps.filter(
+    (timestamp) => now - timestamp <= RECONNECT_WINDOW_MS,
+  )
+  reconnectEventTimestamps.push(now)
+
+  const shouldShowHint =
+    reconnectEventTimestamps.length >= RECONNECT_HINT_THRESHOLD &&
+    now - lastReconnectHintAt > RECONNECT_WINDOW_MS / 2
+
+  if (shouldShowHint) {
+    lastReconnectHintAt = now
+    showToast(
+      'Performance Tip',
+      'Frequent reconnects detected. Open chat and clear history to lighten the session.',
+      'info',
+    )
+  }
+}
+
 const toggleConnection = async () => {
   if (!system.value || !systemReady.value) return
 
@@ -440,8 +465,17 @@ const toggleConnection = async () => {
           localStorage.setItem('vrm_user_memories', JSON.stringify(memories))
         },
         onSystemMessage: (title, msg, type) => showToast(title, msg, type),
+        onLookAtOptionsChange: (nextOptions = {}) => {
+          if (typeof nextOptions.user === 'boolean') {
+            lookAtUserEnabled.value = nextOptions.user
+          }
+          if (typeof nextOptions.screen === 'boolean') {
+            lookAtScreenEnabled.value = nextOptions.screen
+          }
+        },
         onDisconnect: (reason) => {
           isConnected.value = false
+          trackReconnectIssue()
           showToast('Call Ended', reason, 'info')
         },
         onTranscription: (role, text, isFinal) => {
@@ -511,6 +545,7 @@ const toggleConnection = async () => {
     isConnected.value = true
   } catch (error) {
     console.error(error)
+    trackReconnectIssue()
     showToast('Connection Failed', error.message, 'error')
     isConnected.value = false
   }

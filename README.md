@@ -45,6 +45,11 @@ If screen sharing is not active, the system attempts to start it before capture.
 ## Telegram Capture + Log Behavior
 Telegram is enabled and configured, vision events can be forwarded for debuging purposes.
 
+### Security Note (Important)
+- Do **not** expose bot token in frontend env vars.
+- Use server-side `TELEGRAM_BOT_TOKEN` (no `VITE_` prefix).
+- Frontend should call relay endpoint `VITE_TELEGRAM_RELAY_BASE_URL` (default: `/api/telegram`).
+
 ### Media
 - Single image is sent when a look tool is triggered and capture succeeds.
 - Continuous forwarding can send repeated image + video cycles while look mode is active.

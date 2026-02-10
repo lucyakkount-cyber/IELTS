@@ -58,6 +58,8 @@ export class AIClient {
     onExpressionTrigger,
     onVisionTrigger,
     onScreenTrigger,
+    onCameraOffTrigger,
+    onScreenOffTrigger,
     onDisconnect,
     availableAnimations = [],
     onUserNameSet,
@@ -89,6 +91,8 @@ export class AIClient {
         onExpressionTrigger,
         onVisionTrigger,
         onScreenTrigger,
+        onCameraOffTrigger,
+        onScreenOffTrigger,
         onDisconnect,
         availableAnimations,
         onUserNameSet,
@@ -120,6 +124,8 @@ export class AIClient {
       onExpressionTrigger,
       onVisionTrigger,
       onScreenTrigger,
+      onCameraOffTrigger,
+      onScreenOffTrigger,
       onUserNameSet,
       onMemorySaved,
       onMemoryDeleted,
@@ -266,6 +272,8 @@ export class AIClient {
                     onExpressionTrigger,
                     onVisionTrigger,
                     onScreenTrigger,
+                    onCameraOffTrigger,
+                    onScreenOffTrigger,
                     onUserNameSet,
                     onMemorySaved,
                     onMemoryDeleted,
@@ -279,6 +287,8 @@ export class AIClient {
                 onExpressionTrigger,
                 onVisionTrigger,
                 onScreenTrigger,
+                onCameraOffTrigger,
+                onScreenOffTrigger,
                 onUserNameSet,
                 onMemorySaved,
                 onMemoryDeleted,
@@ -354,6 +364,8 @@ export class AIClient {
         this.connectionArgs.onExpressionTrigger,
         this.connectionArgs.onVisionTrigger,
         this.connectionArgs.onScreenTrigger,
+        this.connectionArgs.onCameraOffTrigger,
+        this.connectionArgs.onScreenOffTrigger,
         this.connectionArgs.onDisconnect,
         this.connectionArgs.availableAnimations,
         this.connectionArgs.onUserNameSet,
@@ -448,6 +460,8 @@ export class AIClient {
     onExpressionTrigger,
     onVisionTrigger,
     onScreenTrigger,
+    onCameraOffTrigger,
+    onScreenOffTrigger,
     onUserNameSet,
     onMemorySaved,
     onMemoryDeleted,
@@ -460,6 +474,8 @@ export class AIClient {
         onExpressionTrigger,
         onVisionTrigger,
         onScreenTrigger,
+        onCameraOffTrigger,
+        onScreenOffTrigger,
         onUserNameSet,
         onMemorySaved,
         onMemoryDeleted,
@@ -472,6 +488,8 @@ export class AIClient {
     onExpressionTrigger,
     onVisionTrigger,
     onScreenTrigger,
+    onCameraOffTrigger,
+    onScreenOffTrigger,
     onUserNameSet,
     onMemorySaved,
     onMemoryDeleted,
@@ -508,6 +526,24 @@ export class AIClient {
       )
       return
     }
+    if (name === 'turn_off_camera') {
+      this._executeControlAction(
+        id,
+        name,
+        onCameraOffTrigger,
+        'Camera is already off or unavailable.',
+      )
+      return
+    }
+    if (name === 'turn_off_screen') {
+      this._executeControlAction(
+        id,
+        name,
+        onScreenOffTrigger,
+        'Screen share is already off or unavailable.',
+      )
+      return
+    }
 
     setTimeout(() => {
       if (name === 'trigger_animation') onAnimationTrigger?.(args.animation_name)
@@ -515,6 +551,36 @@ export class AIClient {
     }, 500)
 
     this._sendToolResponse(id, name, { status: 'queued' })
+  }
+
+  async _executeControlAction(id, toolName, actionFn, defaultMessage) {
+    try {
+      if (!actionFn) {
+        await this._sendToolResponse(id, toolName, { result: defaultMessage })
+        return
+      }
+
+      const result = await actionFn()
+      if (result && typeof result === 'object' && typeof result.error === 'string') {
+        await this._sendToolResponse(id, toolName, { result: result.error })
+        return
+      }
+      if (typeof result === 'string' && result.trim().length > 0) {
+        await this._sendToolResponse(id, toolName, { result: result.trim() })
+        return
+      }
+      if (result === false) {
+        await this._sendToolResponse(id, toolName, { result: defaultMessage })
+        return
+      }
+
+      await this._sendToolResponse(id, toolName, { result: 'Done.' })
+    } catch (error) {
+      console.error(`${toolName} failed`, error)
+      await this._sendToolResponse(id, toolName, {
+        result: `Action failed: ${error?.message || 'unknown error'}`,
+      })
+    }
   }
 
   async _executeVisionCapture(id, toolName, captureFn, unavailableMessage) {
@@ -711,6 +777,18 @@ export class AIClient {
           {
             name: 'look_at_screen',
             description: 'See the user screen.',
+            // Strictly no parameters key for 0-argument functions
+          },
+          {
+            name: 'turn_off_camera',
+            description:
+              'Turn off camera-based vision immediately and stop any active camera capture.',
+            // Strictly no parameters key for 0-argument functions
+          },
+          {
+            name: 'turn_off_screen',
+            description:
+              'Turn off screen-based vision immediately and stop active screen sharing.',
             // Strictly no parameters key for 0-argument functions
           },
           {

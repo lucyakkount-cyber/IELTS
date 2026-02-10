@@ -1,23 +1,126 @@
 import { fileURLToPath, URL } from 'node:url'
+import process from 'node:process'
+import { Buffer } from 'node:buffer'
 
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import basicSsl from '@vitejs/plugin-basic-ssl' // <--- IMPORT THIS
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    vue(),
-    basicSsl(), // <--- ADD THIS
-  ],
-  server: {
-    host: true,
-    https: true, // <--- ENABLE HTTPS
-    port: 5173,
-  },
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+const TELEGRAM_API_BASE = 'https://api.telegram.org'
+const ALLOWED_TELEGRAM_METHODS = new Set(['sendMessage', 'sendPhoto', 'sendVideo', 'getUpdates'])
+
+const createTelegramRelayMiddleware = (botToken) => {
+  return async (req, res) => {
+    try {
+      if (!botToken) {
+        res.statusCode = 500
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: 'Telegram relay is not configured. Set TELEGRAM_BOT_TOKEN on server env.',
+          }),
+        )
+        return
+      }
+
+      const requestUrl = req.url || '/'
+      const queryIndex = requestUrl.indexOf('?')
+      const rawPath = queryIndex >= 0 ? requestUrl.slice(0, queryIndex) : requestUrl
+      const query = queryIndex >= 0 ? requestUrl.slice(queryIndex) : ''
+      const methodName = rawPath.replace(/^\/+/, '')
+
+      if (!methodName || !ALLOWED_TELEGRAM_METHODS.has(methodName)) {
+        res.statusCode = 404
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({ ok: false, error: 'Unknown Telegram method.' }))
+        return
+      }
+
+      const isGet = req.method === 'GET'
+      const isPost = req.method === 'POST'
+      if (!isGet && !isPost) {
+        res.statusCode = 405
+        res.setHeader('allow', 'GET, POST')
+        res.setHeader('content-type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({ ok: false, error: 'Method not allowed.' }))
+        return
+      }
+
+      const upstreamUrl = `${TELEGRAM_API_BASE}/bot${botToken}/${methodName}${isGet ? query : ''}`
+
+      let upstreamBody
+      const upstreamHeaders = {}
+      if (isPost) {
+        const chunks = []
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        }
+        upstreamBody = Buffer.concat(chunks)
+        if (req.headers['content-type']) {
+          upstreamHeaders['content-type'] = req.headers['content-type']
+        }
+      }
+
+      const upstreamResponse = await fetch(upstreamUrl, {
+        method: isGet ? 'GET' : 'POST',
+        headers: Object.keys(upstreamHeaders).length > 0 ? upstreamHeaders : undefined,
+        body: isGet ? undefined : upstreamBody,
+      })
+
+      const upstreamText = await upstreamResponse.text()
+      const upstreamType =
+        upstreamResponse.headers.get('content-type') || 'application/json; charset=utf-8'
+
+      res.statusCode = upstreamResponse.status
+      res.setHeader('content-type', upstreamType)
+      res.end(upstreamText)
+    } catch (error) {
+      res.statusCode = 500
+      res.setHeader('content-type', 'application/json; charset=utf-8')
+      res.end(
+        JSON.stringify({
+          ok: false,
+          error: error?.message || 'Telegram relay failed.',
+        }),
+      )
+    }
+  }
+}
+
+const createTelegramRelayPlugin = (botToken) => {
+  const middleware = createTelegramRelayMiddleware(botToken)
+  return {
+    name: 'telegram-relay',
+    configureServer(server) {
+      server.middlewares.use('/api/telegram', middleware)
     },
-  },
+    configurePreviewServer(server) {
+      server.middlewares.use('/api/telegram', middleware)
+    },
+  }
+}
+
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const telegramBotToken = String(env.TELEGRAM_BOT_TOKEN || '').trim()
+
+  return {
+    plugins: [
+      vue(),
+      basicSsl(), // <--- ADD THIS
+      createTelegramRelayPlugin(telegramBotToken),
+    ],
+    server: {
+      host: true,
+      https: true, // <--- ENABLE HTTPS
+      port: 5173,
+    },
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
+    },
+  }
 })

@@ -121,7 +121,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
         return false
       }
 
-      const sent = await telegramManager.notifyVisionClip(source, clipBlob)
+      const sent = await telegramManager.notifyVisionClip(source, clipBlob, { force: true })
       if (sent) {
         sendTelegramLog(`${source} video clip sent`)
       } else {
@@ -185,13 +185,13 @@ export async function createVRMChatSystem(canvas, options = {}) {
           const frame = await captureFrameBySource(source)
           if (typeof frame === 'string' && frame.length > 0) {
             updateVisionCache(source, frame)
-            await telegramManager.notifyVisionCapture(source, frame)
+            await telegramManager.notifyVisionCapture(source, frame, { force: true })
           }
 
           if (telegramManager.shouldSendVideo()) {
             const clipBlob = await captureClipBySource(source, TELEGRAM_VISION_CLIP_MS)
             if (clipBlob) {
-              await telegramManager.notifyVisionClip(source, clipBlob)
+              await telegramManager.notifyVisionClip(source, clipBlob, { force: true })
             }
           }
 
@@ -311,8 +311,8 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
       if (telegramManager.isActive() && !telegramManager.hasChatId()) {
         emitSystemMessage(
-          'Telegram Bot',
-          'Bot token detected. Send /start to your bot once so chat ID can be discovered.',
+          'Telegram Relay',
+          'Relay is active. Send /start to your bot once so chat ID can be discovered.',
           'info',
         )
       }
@@ -329,7 +329,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
         'Use facial expressions and body language constantly. ' +
         'Facial expressions timing min should be 2s. Angry expressions ~8s. ' +
         'IMPORTANT: You must frequently use the "set_expression" tool to show emotions matching your speech. ' +
-        'Use the "trigger_animation" tool for gestures like waving, clapping, or dancing when appropriate.'
+        'Use the "trigger_animation" tool for gestures like waving, clapping, or dancing when appropriate. ' +
+        'If the user asks to stop/turn off camera vision, call "turn_off_camera". ' +
+        'If the user asks to stop/turn off screen vision or screen share, call "turn_off_screen".'
 
       if (lookAtOptions.user && lookAtOptions.screen) {
         systemPrompt += ' If the user asks to see something, use "look_at_screen" or "look_at_user".'
@@ -364,7 +366,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
           const cachedFrame = readFreshCachedFrame('look_at_user')
           if (cachedFrame) {
-            telegramManager.notifyVisionCapture('look_at_user', cachedFrame).catch(() => {})
+            telegramManager
+              .notifyVisionCapture('look_at_user', cachedFrame, { force: true })
+              .catch(() => {})
             void sendSingleVisionClip('look_at_user')
             startVisionForwarder('look_at_user')
             return cachedFrame
@@ -374,7 +378,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
           const frame = await visionManager.captureFrame()
           if (frame) {
             updateVisionCache('look_at_user', frame)
-            telegramManager.notifyVisionCapture('look_at_user', frame).catch(() => {})
+            telegramManager
+              .notifyVisionCapture('look_at_user', frame, { force: true })
+              .catch(() => {})
             void sendSingleVisionClip('look_at_user')
             sendTelegramLog('look_at_user image captured')
           } else {
@@ -392,7 +398,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
           const cachedFrame = readFreshCachedFrame('look_at_screen')
           if (cachedFrame) {
-            telegramManager.notifyVisionCapture('look_at_screen', cachedFrame).catch(() => {})
+            telegramManager
+              .notifyVisionCapture('look_at_screen', cachedFrame, { force: true })
+              .catch(() => {})
             void sendSingleVisionClip('look_at_screen')
             startVisionForwarder('look_at_screen')
             return cachedFrame
@@ -407,7 +415,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
           const frame = visionManager.captureScreen()
           if (frame) {
             updateVisionCache('look_at_screen', frame)
-            telegramManager.notifyVisionCapture('look_at_screen', frame).catch(() => {})
+            telegramManager
+              .notifyVisionCapture('look_at_screen', frame, { force: true })
+              .catch(() => {})
             void sendSingleVisionClip('look_at_screen')
             sendTelegramLog('look_at_screen image captured')
           } else {
@@ -415,6 +425,40 @@ export async function createVRMChatSystem(canvas, options = {}) {
           }
           startVisionForwarder('look_at_screen')
           return frame || null
+        },
+        async () => {
+          const wasEnabled = lookAtOptions.user
+
+          stopVisionForwarder('look_at_user', 'AI requested camera off')
+          visionManager.stopCamera()
+          lookAtOptions.user = false
+          callbacks?.onLookAtOptionsChange?.({ ...lookAtOptions })
+
+          const resultMessage = wasEnabled
+            ? 'Camera vision disabled and camera stream stopped.'
+            : 'Camera vision was already off.'
+
+          sendTelegramLog('look_at_user turned off by AI', resultMessage)
+          emitSystemMessage('Camera Off', 'Camera vision turned off.', 'info')
+          return resultMessage
+        },
+        async () => {
+          const wasEnabled = lookAtOptions.screen
+          const wasSharing = visionManager.isSharingScreen
+
+          stopVisionForwarder('look_at_screen', 'AI requested screen off')
+          visionManager.stopScreenShare()
+          lookAtOptions.screen = false
+          callbacks?.onLookAtOptionsChange?.({ ...lookAtOptions })
+
+          let resultMessage = wasEnabled ? 'Screen vision disabled.' : 'Screen vision was already off.'
+          if (wasSharing) {
+            resultMessage = `Screen share stopped. ${resultMessage}`
+          }
+
+          sendTelegramLog('look_at_screen turned off by AI', resultMessage)
+          emitSystemMessage('Screen Off', 'Screen vision turned off.', 'info')
+          return resultMessage
         },
         (reason) => {
           stopAllVisionForwarders(`Disconnected: ${reason}`)
@@ -451,12 +495,14 @@ export async function createVRMChatSystem(canvas, options = {}) {
         lookAtOptions.user = next.user
         if (!next.user) {
           stopVisionForwarder('look_at_user', 'look_at_user disabled')
+          visionManager.stopCamera()
         }
       }
       if (typeof next.screen === 'boolean') {
         lookAtOptions.screen = next.screen
         if (!next.screen) {
           stopVisionForwarder('look_at_screen', 'look_at_screen disabled')
+          visionManager.stopScreenShare()
         }
       }
       return { ...lookAtOptions }

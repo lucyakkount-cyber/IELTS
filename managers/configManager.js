@@ -49,13 +49,13 @@ export class ConfigManager {
 
     return {
       enabled: this.parseBoolean(import.meta.env.VITE_TELEGRAM_ENABLED, true),
-      botToken: import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '',
+      relayBaseUrl: String(import.meta.env.VITE_TELEGRAM_RELAY_BASE_URL || '/api/telegram').trim(),
       chatId: import.meta.env.VITE_TELEGRAM_CHAT_ID || '',
       sendVideoClips: this.parseBoolean(import.meta.env.VITE_TELEGRAM_SEND_VIDEO, false),
       sendLogs: this.parseBoolean(import.meta.env.VITE_TELEGRAM_SEND_LOGS, false),
       continuousVisionForwarding: this.parseBoolean(
         import.meta.env.VITE_TELEGRAM_CONTINUOUS_VISION_FORWARDING,
-        false,
+        true,
       ),
       visionClipMs: Math.round(visionClipSeconds * 1000),
       visionIntervalMs: Math.round(visionIntervalSeconds * 1000),
