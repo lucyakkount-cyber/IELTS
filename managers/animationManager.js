@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation'
+import { cacheManager } from './cacheManager'
 
 export class AnimationManager {
   vrm
@@ -269,36 +270,62 @@ export class AnimationManager {
   }
 
   async loadClip(name, url, isLoop) {
-    return new Promise((resolve, reject) => {
-      this.loader.load(
-        url,
-        (gltf) => {
-          let clip = null
-          if (gltf.userData.vrmAnimations && gltf.userData.vrmAnimations.length > 0) {
-            clip = createVRMAnimationClip(gltf.userData.vrmAnimations[0], this.vrm)
-          } else if (gltf.animations && gltf.animations.length > 0) {
-            clip = createVRMAnimationClip(gltf.animations[0], this.vrm)
-          }
+    try {
+      let arrayBuffer
 
-          if (clip) {
-            clip.name = name
-            const action = this.mixer.clipAction(clip)
-            action.loop = isLoop ? THREE.LoopRepeat : THREE.LoopOnce
-            action.clampWhenFinished = true
-            this.actions[name] = action
-            resolve(action)
-          } else {
-            console.warn(`⚠️ Empty animation: ${url}`)
-            resolve(null)
-          }
-        },
-        undefined,
-        (err) => {
-          console.warn(`❌ Load failed: ${url}`, err)
-          reject(err)
-        },
-      )
-    })
+      // 1. Try Cache
+      const cached = await cacheManager.getCached('animations', url)
+      if (cached) {
+        // console.log(`⚡ Anim Cache Hit: ${name}`)
+        arrayBuffer = cached
+      } else {
+        // 2. Fetch
+        // console.log(`🌐 Anim Fetching: ${name}`)
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`Failed to fetch ${url}`)
+        arrayBuffer = await response.arrayBuffer()
+
+        // 3. Cache
+        cacheManager
+          .setCached('animations', url, arrayBuffer)
+          .catch((e) => console.warn('Anim cache failed', e))
+      }
+
+      // 4. Parse
+      return new Promise((resolve, reject) => {
+        this.loader.parse(
+          arrayBuffer,
+          url,
+          (gltf) => {
+            let clip = null
+            if (gltf.userData.vrmAnimations && gltf.userData.vrmAnimations.length > 0) {
+              clip = createVRMAnimationClip(gltf.userData.vrmAnimations[0], this.vrm)
+            } else if (gltf.animations && gltf.animations.length > 0) {
+              clip = createVRMAnimationClip(gltf.animations[0], this.vrm)
+            }
+
+            if (clip) {
+              clip.name = name
+              const action = this.mixer.clipAction(clip)
+              action.loop = isLoop ? THREE.LoopRepeat : THREE.LoopOnce
+              action.clampWhenFinished = true
+              this.actions[name] = action
+              resolve(action)
+            } else {
+              console.warn(`⚠️ Empty animation: ${url}`)
+              resolve(null)
+            }
+          },
+          (err) => {
+            console.warn(`❌ Parse failed: ${url}`, err)
+            reject(err)
+          },
+        )
+      })
+    } catch (err) {
+      console.warn(`❌ Load failed: ${url}`, err)
+      throw err
+    }
   }
 
   play(name) {
