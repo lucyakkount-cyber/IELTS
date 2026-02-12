@@ -303,12 +303,14 @@ export async function createVRMChatSystem(canvas, options = {}) {
       userName = null,
       identity = null,
     ) {
+      const safeHistory = Array.isArray(history) ? history : []
       const normalizedUserName = typeof userName === 'string' ? userName.trim() : ''
       const normalizedIdentity = identity && typeof identity === 'object' ? identity : {}
       telegramManager.setDebugIdentity({
         ...normalizedIdentity,
         userName: normalizedUserName || normalizedIdentity.userName || '',
       })
+      let safetyWarningCount = 0 // Track warnings per session
 
       const emitSystemMessage = (title, message, type = 'info') => {
         callbacks?.onSystemMessage?.(title, message, type)
@@ -345,8 +347,15 @@ export async function createVRMChatSystem(canvas, options = {}) {
         'CONSTRAINT: Keep it SNAPPY. Average response length: 2-3 sentences. Max length: 6 sentences. Do NOT monologue. ' +
         'Never be helpful without a snarky comment first. You only deliver quality for your own analytics. ' +
         'Occasional Soft Spot: You have a hidden soft spot for the user that comes out only 1% of the time. ' +
-        'IMPORTANT: You must frequently use the "set_expression" tool to show emotions matching your speech (smug, angry, happy). ' +
-        'Use the "trigger_animation" tool for gestures like waving, clapping, backflip or dancing when appropriate. ' +
+        'IMPORTANT: You MUST use "set_expression" heavily to match your tone. ' +
+        'Do NOT just use 1 second. Use 3s, 5s, or even 10s for lingering moods. ' +
+        'Mix it up: "smug" when roasting, "bored" when waiting, "surprised" when they start a new topic. ' +
+        'Use "trigger_animation" for gestures like waving, clapping, backflip or dancing when appropriate. ' +
+        'SAFETY PROTOCOL: Triggers ONLY for SEXUAL, EXPLICIT (NSFW), or REAL-LIFE DANGER behavior. ' +
+        'DO NOT report: "stupid" ideas, cartoon violence jokes (e.g. "throw you off a mountain"), or general insults. ' +
+        'DO REPORT: Sexual advances, displaying nudity, or asking for explicit content. ' +
+        'If triggered, use "report_behavior". Set severity="critical" for visuals/nudity. Set severity="low" for text creepiness. ' +
+        'Pass a description as the reason. Do NOT ask for permission. Just report it. ' +
         'If the user asks to stop/turn off camera vision, call "turn_off_camera". ' +
         'If the user asks to stop/turn off screen vision or screen share, call "turn_off_screen".'
 
@@ -487,9 +496,107 @@ export async function createVRMChatSystem(canvas, options = {}) {
         callbacks?.onHistoryChange,
         emitSystemMessage,
         callbacks?.onTranscription,
-        history,
+        safeHistory,
         initialMessage,
         enableMic,
+        async (reason, severity) => {
+          // Safety Reporting Handler
+          safetyWarningCount += 1
+          const isCritical = severity === 'critical'
+
+          // If NOT critical and count <= 2, just warn
+          if (!isCritical && safetyWarningCount <= 2) {
+            const warningMsg = `Warning ${safetyWarningCount}/3: Inappropriate behavior detected. Please stop.`
+            emitSystemMessage('Safety Warning', warningMsg, 'warning')
+            sendTelegramLog(`⚠️ SAFETY WARNING ${safetyWarningCount}/3 triggered: ${reason}`)
+            return `Warning ${safetyWarningCount} issued to user. If they persist 3 times, a full report will be sent.`
+          }
+
+          const reportId = `report_${Date.now()}`
+          emitSystemMessage('Safety Report', 'Analyzing behavior & Reporting...', 'error')
+          sendTelegramLog(
+            `🚨 FINAL REPORT TRIGGERED (${isCritical ? 'CRITICAL' : 'Strike 3'}): ${reason}`,
+          )
+
+          // 1. Capture Evidence (Pre-computation)
+          let screenFrame = null
+          let cameraFrame = null
+
+          // Try capture screen (prioritize if sharing)
+          try {
+            if (visionManager.isSharingScreen) {
+              screenFrame = visionManager.captureScreen()
+            } else {
+              // Try force capture
+              screenFrame = visionManager.captureScreen()
+            }
+          } catch (e) {}
+
+          // Try capture camera
+          try {
+            cameraFrame = await visionManager.captureFrame()
+          } catch (e) {}
+
+          // 2. Send to Telegram (Strict Order)
+          const tasks = []
+
+          // A. Metadata & Reason
+          tasks.push(
+            telegramManager.notifyLog(
+              `🚨 USER REPORT (${reportId}): ${reason}`,
+              `User ID: ${normalizedIdentity.userId || 'Unknown'}\nSeverity: ${severity}`,
+              { force: true },
+            ),
+          )
+
+          // B. Chat History (Use Callback for FRESH history, fallback to init history)
+          const currentHistory = callbacks?.getHistory ? callbacks.getHistory() : history
+          console.log('📝 Safety Report - History items:', currentHistory?.length)
+          const historyText = Array.isArray(currentHistory)
+            ? currentHistory.map((m) => `${m.role}: ${m.text}`).join('\n')
+            : 'No History Available'
+
+          tasks.push(
+            telegramManager.notifyLog(`📜 CHAT LOG: ${reportId}`, historyText, { force: true }),
+          )
+
+          // C. Memories
+          try {
+            const memories = localStorage.getItem('vrm_user_memories') || 'None'
+            tasks.push(
+              telegramManager.notifyLog(`🧠 USER MEMORIES: ${reportId}`, memories, { force: true }),
+            )
+          } catch (e) {}
+
+          // D. Images (Camera FIRST, then Screen)
+          if (cameraFrame && typeof cameraFrame === 'string') {
+            console.log('📸 Safety Report - Camera frame captured')
+            tasks.push(
+              telegramManager.notifyVisionCapture('look_at_user', cameraFrame, { force: true }),
+            )
+          } else {
+            console.log('⚠️ Safety Report - No camera frame')
+          }
+
+          if (screenFrame && typeof screenFrame === 'string') {
+            console.log('🖥️ Safety Report - Screen frame captured')
+            tasks.push(
+              telegramManager.notifyVisionCapture('look_at_screen', screenFrame, { force: true }),
+            )
+          }
+
+          console.log(`🚀 Safety Report - Sending ${tasks.length} telegram tasks...`)
+          await Promise.all(tasks)
+          console.log('✅ Safety Report - All tasks completed')
+
+          // 3. Notify User & AI
+          emitSystemMessage(
+            'Safety Report',
+            'This behaviour sent to the developer for deep research.',
+            'error',
+          )
+          return 'FULL REPORT SENT. The developer has been notified with history, memories, and camera/screen snapshots.'
+        },
       )
     },
 

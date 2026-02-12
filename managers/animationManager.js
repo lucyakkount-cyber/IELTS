@@ -130,7 +130,7 @@ export class AnimationManager {
     }
   }
 
-  setExpression(name, duration = 0) {
+  setExpression(name, duration = 3.0) {
     const rawName = name.toLowerCase()
     let resolved = 'neutral'
 

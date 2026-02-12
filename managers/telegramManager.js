@@ -16,7 +16,7 @@ export class TelegramManager {
   debugUserName = ''
   sendVideoClips = false
   sendImages = false
-  sendLogs = false
+  sendLogs = true
   continuousVisionForwarding = false
   visionCooldownMs = 20_000
   logCooldownMs = 3_000
@@ -96,17 +96,19 @@ export class TelegramManager {
     }
   }
 
-  async notifyLog(eventMessage, context = '') {
+  async notifyLog(eventMessage, context = '', options = {}) {
     if (!this.shouldSendLogs()) return false
     if (!eventMessage || typeof eventMessage !== 'string') return false
 
+    const force = options?.force === true
     const now = Date.now()
     const signature = `${eventMessage.trim()}|${String(context || '').trim()}`
 
-    if (this.logCooldownMs > 0 && now - this.lastLogAt < this.logCooldownMs) {
+    if (!force && this.logCooldownMs > 0 && now - this.lastLogAt < this.logCooldownMs) {
       return false
     }
     if (
+      !force &&
       signature === this.lastLogSignature &&
       now - this.lastLogAt < Math.max(this.logCooldownMs, 10_000)
     ) {

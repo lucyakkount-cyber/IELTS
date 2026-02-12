@@ -595,6 +595,7 @@ const toggleConnection = async () => {
             createHistoryEntry(normalizedRole, normalizedText),
           ])
         },
+        getHistory: () => chatHistory.value,
       },
       '',
       true,

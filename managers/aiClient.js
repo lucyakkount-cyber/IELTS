@@ -71,6 +71,7 @@ export class AIClient {
     pastHistory = [],
     initialMessage = '',
     enableMic = true,
+    onBehaviorReport,
   ) {
     if (this.activeSession) return
 
@@ -104,6 +105,7 @@ export class AIClient {
         pastHistory,
         initialMessage,
         enableMic,
+        onBehaviorReport,
       }
 
       await this._establishConnection()
@@ -137,24 +139,27 @@ export class AIClient {
     } = this.connectionArgs
 
     // Reconstruct System Prompt with Full Context
+    console.log('🔌 _establishConnection. onTranscription defined?', !!onTranscription)
     let fullSystemPrompt = baseSystemPrompt
 
     // Combine passed history with any internal history accumulated during this session wrapper
-    const combinedHistory = [...pastHistory, ...this.internalHistory]
+    const safePastHistory = Array.isArray(pastHistory) ? pastHistory : []
+    const combinedHistory = [...safePastHistory, ...this.internalHistory]
 
     // INTELLIGENT RECONNECT LOGIC:
     // Check if the last message in history was from the user.
     // If so, it means the connection dropped before the AI could respond.
     // We treat this as a "Pending Question" that needs an immediate answer.
-    let pendingUserQuestion = initialMessage || ''
+    let pendingUserQuestion = initialMessage ? String(initialMessage) : ''
 
     if (combinedHistory.length > 0) {
       const lastMsg = combinedHistory[combinedHistory.length - 1]
 
       // If we don't have an explicit initial message, but the history shows the user spoke last
       if (!pendingUserQuestion && lastMsg.role === 'user') {
-        console.log('⚠️ Found unanswered user message in history. Reprompting model.', lastMsg.text)
-        pendingUserQuestion = lastMsg.text
+        const text = lastMsg.text ? String(lastMsg.text) : ''
+        console.log('⚠️ Found unanswered user message in history. Reprompting model.', text)
+        pendingUserQuestion = text
       }
 
       // Format history for context (excluding the pending question if we are going to inject it as a prompt)
@@ -246,6 +251,7 @@ export class AIClient {
               this.currentOutputTranscription += text
               onTranscription?.('model', this.currentOutputTranscription, false)
             } else if (msg.serverContent?.inputTranscription) {
+              // console.log('📝 Input Transcription:', msg.serverContent.inputTranscription.text)
               const text = msg.serverContent.inputTranscription.text
               this.currentInputTranscription += text
               onTranscription?.('user', this.currentInputTranscription, false)
@@ -513,6 +519,13 @@ export class AIClient {
       return
     }
 
+    if (name === 'report_behavior') {
+      // Pass the callback if provided in connection args, efficiently handled in index.js
+      this.connectionArgs?.onBehaviorReport?.(args.reason, args.severity)
+      this._sendToolResponse(id, name, { result: 'Report sent to developer.' })
+      return
+    }
+
     if (name === 'look_at_user') {
       this._executeVisionCapture(id, name, onVisionTrigger, 'Camera not available.')
       return
@@ -761,15 +774,19 @@ export class AIClient {
           },
           {
             name: 'set_expression',
-            description: 'Sets facial expression.',
+            description: 'Sets facial expression. Use "neutral" to reset.',
             parameters: {
               type: 'OBJECT',
               properties: {
                 expression: {
                   type: 'STRING',
-                  description: 'happy, sad, angry, surprised, excited, thinking, smug',
+                  description:
+                    'happy, sad, angry, surprised, excited, thinking, smug, relaxed, bored, disgust',
                 },
-                duration: { type: 'NUMBER' },
+                duration: {
+                  type: 'NUMBER',
+                  description: 'Duration in seconds (default 3.0). Use longer for moods.',
+                },
               },
               required: ['expression'],
             },
@@ -823,6 +840,24 @@ export class AIClient {
               type: 'OBJECT',
               properties: { key: { type: 'STRING' } },
               required: ['key'],
+            },
+          },
+          {
+            name: 'report_behavior',
+            description:
+              'Report unusual or inappropriate behavior to the developer. Captures evidence.',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                reason: { type: 'STRING', description: 'Description of the unusual behavior' },
+                severity: {
+                  type: 'STRING',
+                  enum: ['low', 'critical'],
+                  description:
+                    'Use "critical" for NSFW/Nudity/Explicit content. Use "low" for creepy/weird text.',
+                },
+              },
+              required: ['reason', 'severity'],
             },
           },
         ],
