@@ -1,60 +1,85 @@
-## What This App Can Do
-- Real-time voice conversation with a VRM avatar (Riko persona).
-- Live facial expressions and body animations triggered by AI tool calls.
-- Camera vision support (`look_at_user`) so AI can inspect what your webcam sees.
-- Screen vision support (`look_at_screen`) so AI can inspect your shared display.
-- Local conversation memory and chat history.
-- Telegram forwarding for captures:
-  - photos from camera/screen look actions,
-  - optional video clips,
-  - optional event logs.
+# 🌌 QUANTUM VRM: Next-Gen AI Avatar System
 
-## Core AI Tools
-- `look_at_user`: capture from webcam and let AI analyze it.
-- `look_at_screen`: capture from shared screen and let AI analyze it.
-- `set_expression`: change avatar facial expression.
-- `trigger_animation`: play avatar animation/gesture.
-- `set_user_name`: store your name for future replies.
-- `save_memory` / `delete_memory`: persist or remove user facts.
+> **"Reality is just a suggestion."**
 
-## How To Trigger Vision Actions
-Use normal language in chat/voice. The model decides when to call tools.
+A state-of-the-art interactive 3D Avatar system powered by Google Gemini 2.0 Flash. Featuring real-time voice interaction, emotional intelligence, and a high-fidelity "Quantum" aesthetic.
 
-### Trigger `look_at_user` (camera)
-Say things like:
-- "Look at me."
-- "Can you check my face expression?"
-- "What do you see from my camera?"
+![Version](https://img.shields.io/badge/version-2.0.0_Ultimate-cyan)
+![Status](https://img.shields.io/badge/status-Stable-emerald)
+![Engine](https://img.shields.io/badge/engine-Three.js_r160-white)
 
-### Trigger `look_at_screen` (screen share)
-Say things like:
-- "Look at my screen."
-- "Can you read this error on my monitor?"
-- "Analyze what is open right now."
+## ✨ Key Features
 
-If screen sharing is not active, the system attempts to start it before capture.
+### 🧠 **Neural "Rico" Persona**
 
-## Settings That Affect Triggers
-- `Look At User` toggle:
-  - ON: AI may call `look_at_user`.
-  - OFF: all `look_at_user` calls are blocked.
-- `Look At Screen` toggle:
-  - ON: AI may call `look_at_screen`.
-  - OFF: all `look_at_screen` calls are blocked.
+- **Personality**: Sassy, high-energy, and business-minded. Rico isn't just an assistant; she's a "Cyber-Hustler" who demands tribute and roasts bad ideas.
+- **Dynamic Response**: Responses are short, punchy, and emotionally charged.
+- **Memory Core**: Remembers user details and past conversations across sessions.
 
-## Telegram Capture + Log Behavior
-Telegram is enabled and configured, vision events can be forwarded for debuging purposes.
+### 🎨 **Quantum Visual Engine (v3)**
 
-### Security Note (Important)
-- Do **not** expose bot token in frontend env vars.
-- Use server-side `TELEGRAM_BOT_TOKEN` (no `VITE_` prefix).
-- Frontend should call relay endpoint `VITE_TELEGRAM_RELAY_BASE_URL` (default: `/api/telegram`).
+- **Holographic Environment**: Dual infinite grids (Floor & Ceiling) with a rotating vertical hyper-scanner.
+- **VFX Layer**: "Digital Rain" particle system, chromatic aberration, and film grain for a cinematic look.
+- **Audio Visualizer**: Simulated EQ bars that react to system states.
+- **Glassmorphism UI**: Premium dark-mode interface with "liquid glass" settings panels.
 
-### Media
-- Single image is sent when a look tool is triggered and capture succeeds.
-- Continuous forwarding can send repeated image + video cycles while look mode is active.
+### 🎭 **Advanced Expression Engine**
 
-## Avatar Interaction Notes
-- Expressions and animations are AI-driven through tool calls.
-- Look tools are governed by user toggles and current screen-share state.
-- Conversation context is preserved through saved history/memory hooks.
+- **Deep Emotion**: Expressions now have variable duration (3s - 10s) for lingering moods.
+- **Micro-Expressions**: Subtle eye twitches and blinks to simulate life even when idle.
+- **Full Range**: Supports a wide array of emotions: `smug`, `bored`, `disgust`, `excited`, `thinking`, and more.
+
+### ⚡ **Performance Optimized**
+
+- **Smart Caching**: VRM models and animations are cached in IndexedDB for instant loads.
+- **Memory Management**: Aggressive garbage collection and resource disposal to prevent leaks during long sessions.
+- **Dynamic Imports**: Code splitting ensures faster initial page loads.
+
+### 🛡️ **Safety Layer**
+
+- **Behavioral Reporting**: Integrated system to flag unsafe or inappropriate interactions for review.
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- Google Gemini API Key
+
+### Installation
+
+1.  **Clone the repository**
+
+    ```bash
+    git clone https://github.com/your-username/quantum-vrm.git
+    cd quantum-vrm
+    ```
+
+2.  **Install dependencies**
+
+    ```bash
+    npm install
+    ```
+
+3.  **Configure Environment**
+    Create a `.env` file in the root directory:
+
+    ```env
+    VITE_GEMINI_API_KEY=your_api_key_here
+    ```
+
+4.  **Run Development Server**
+    ```bash
+    npm run dev
+    ```
+
+## 🎮 Controls
+
+- **Microphone**: Click the connection toggle to start a live voice session.
+- **Camera**: Toggle vision to let Rico "see" you (Face tracking enabled).
+- **Screen Share**: Show your screen for analysis.
+- **Drag & Drop**: Drag any `.vrm` file into the window to swap your avatar instantly.
+
+---
+
+_Powered by Google Gemini Multimodal Live API_
