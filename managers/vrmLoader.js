@@ -18,10 +18,21 @@ export class VRMLoader {
     }
     try {
       // 1. Try Cache
-      const cachedBuffer = await cacheManager.getCached('models', path)
-      if (cachedBuffer) {
-        console.log('⚡ VRMLoader: Loaded from cache:', path)
-        const gltf = await this.loader.parseAsync(cachedBuffer, path) // path needs to be valid relative to where resources might be referenced
+      const cached = await cacheManager.getCached('models', path)
+      let buffer = null
+
+      if (cached) {
+        if (cached.meta && cached.buffer) {
+          buffer = cached.buffer
+          console.log('⚡ VRMLoader: Loaded from cache (with meta):', path)
+        } else if (cached.byteLength) {
+          buffer = cached
+          console.log('⚡ VRMLoader: Loaded from cache (legacy):', path)
+        }
+      }
+
+      if (buffer) {
+        const gltf = await this.loader.parseAsync(buffer, path)
         const vrm = gltf.userData.vrm
         this.setupVRMModel(vrm)
         return vrm
@@ -35,8 +46,9 @@ export class VRMLoader {
       const arrayBuffer = await response.arrayBuffer()
 
       // 3. Store in Cache (fire and forget)
+      // For remote paths, we treat them as default/server models unless specified otherwise
       cacheManager
-        .setCached('models', path, arrayBuffer)
+        .setCached('models', path, arrayBuffer) // Keep simple buffer for remote/default
         .catch((err) => console.warn('Failed to cache model', err))
 
       // 4. Parse
@@ -46,8 +58,6 @@ export class VRMLoader {
       return vrm
     } catch (error) {
       console.error('VRMLoader: Error loading', error)
-      // Fallback: The original code re-threw the error for the caller to handle (e.g. try remote URL)
-      // We should probably still throw if the fetch failed so the caller can try the fallback URL
       throw error
     }
   }
@@ -56,6 +66,22 @@ export class VRMLoader {
     try {
       console.log('Loading VRM model from file:', file.name)
       const arrayBuffer = await file.arrayBuffer()
+
+      // Save to cache with metadata
+      const key = `user_vrm_${Date.now()}`
+      const meta = {
+        name: file.name,
+        date: Date.now(),
+        type: 'user',
+        size: file.size,
+      }
+
+      await cacheManager.setCached('models', key, {
+        buffer: arrayBuffer,
+        meta,
+      })
+      console.log('💾 VRMLoader: Cached user model', key)
+
       const gltf = await this.loader.parseAsync(arrayBuffer, '')
       const vrm = gltf.userData.vrm
       this.setupVRMModel(vrm)
@@ -101,15 +127,41 @@ export class VRMLoader {
 
   cleanupVRM(vrm) {
     if (!vrm) return
-    vrm.scene.traverse((child) => {
-      if (child.isMesh) {
-        child.geometry?.dispose()
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m.dispose())
-        } else {
-          child.material?.dispose()
-        }
+
+    // 1. Dispose VRM instance (plugin resources, blendshape managers, etc.)
+    if (typeof vrm.dispose === 'function') {
+      try {
+        vrm.dispose()
+      } catch (e) {
+        console.warn('Error disposing VRM instance:', e)
       }
-    })
+    }
+
+    // 2. Deep dispose of Scene Graph (Geometries, Materials, Textures)
+    if (vrm.scene) {
+      vrm.scene.traverse((child) => {
+        if (child.isMesh) {
+          if (child.geometry) {
+            child.geometry.dispose()
+          }
+
+          const materials = Array.isArray(child.material) ? child.material : [child.material]
+
+          materials.forEach((material) => {
+            if (!material) return
+
+            // Dispose all textures on the material
+            Object.keys(material).forEach((key) => {
+              const prop = material[key]
+              if (prop && prop.isTexture) {
+                prop.dispose()
+              }
+            })
+
+            material.dispose()
+          })
+        }
+      })
+    }
   }
 }

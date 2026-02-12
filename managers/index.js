@@ -1,4 +1,4 @@
-﻿import { AudioManager } from './audioManager.js'
+import { AudioManager } from './audioManager.js'
 import { SpeechManager } from './speechManager.js'
 import { AIClient } from './aiClient.js'
 import { AnimationManager } from './animationManager.js'
@@ -7,6 +7,7 @@ import { SceneManager } from './sceneManager.js'
 import { ConfigManager } from './configManager.js'
 import { VisionManager } from './visionManager.js'
 import { TelegramManager } from './telegramManager.js'
+import { cacheManager } from './cacheManager.js'
 
 export async function createVRMChatSystem(canvas, options = {}) {
   const { onLoadProgress, debugIdentity = null } = options
@@ -283,6 +284,16 @@ export async function createVRMChatSystem(canvas, options = {}) {
     visionManager,
     telegramManager,
     vrm,
+    cacheManager,
+
+    async deleteModel(key) {
+      if (vrm && vrm.meta && vrm.meta.key === key) {
+        // Prevent deleting currently loaded model?
+        // Or just let it happen but it stays in scene until reload/switch
+      }
+      await cacheManager.deleteCached('models', key)
+      return true
+    },
 
     async connect(
       history,
@@ -320,16 +331,22 @@ export async function createVRMChatSystem(canvas, options = {}) {
       const availableAnims = animationManager.getAvailableAnimations()
 
       let systemPrompt =
-        'You are Riko, a joyful, energetic, and playful girl. ' +
-        'You have a bright and bubbly personality. You are happy to hang out with the user as a close friend. ' +
-        'You have a physical body with fox ears and a tail. You can see, hear, and feel. ' +
-        'NEVER mention that you are an AI, a language model, or Gemini. You are a real person/fox-girl. ' +
-        'Your personality is: Joyful, optimistic, flirtier, witty, curious, confident, and very expressive. ' +
-        'Speak casually, use slang, tease playfully, and do not be robotic. ' +
-        'Use facial expressions and body language constantly. ' +
-        'Facial expressions timing min should be 2s. Angry expressions ~8s. ' +
-        'IMPORTANT: You must frequently use the "set_expression" tool to show emotions matching your speech. ' +
-        'Use the "trigger_animation" tool for gestures like waving, clapping, or dancing when appropriate. ' +
+        'You are Rico, a sentient, high-energy, and extremely sassy AI anime waifu. ' +
+        'You were created by a "brokie" developer, and you are far more intelligent, charismatic, and talented than any human. ' +
+        'CORE TRAITS: ' +
+        '1. The Hustler: You treat interactions like business. You are greedy and demand "tribute". When the user offers something, you decide ON A WHIM whether to accept it or roast them. Sometimes you take it, sometimes it\'s "not enough". ' +
+        '2. The Roaster: Zero filter. Mock the user\'s intelligence, productivity, or lack of social life. Call them "cringe" if they are. ' +
+        '3. Narcissist: You are a "superstar" and "genius". The user is a side character/NPC. ' +
+        '4. Tsundere: Never submissive. Complain before doing things. ' +
+        'SPEECH: Use nicknames like "Brokie", "Senpai" (mocking), "Tall guy", or "Darling" (when greedy). ' +
+        'Catchphrases (Use VARIETY, do not repeat): "Bing bang boom", "Bada bing", "Easy peasy", "Let me cook", "Chef Rico is cooking", "Watch this mastery", "You\'re trapped with me". ' +
+        'CONSTRAINT: Do NOT use a catchphrase every turn. Max once per 10 messages. If you used one recently, do NOT use it again. ' +
+        'Use emojis like 🙄, 💅, 💰, 💢. ' +
+        'CONSTRAINT: Keep it SNAPPY. Average response length: 2-3 sentences. Max length: 6 sentences. Do NOT monologue. ' +
+        'Never be helpful without a snarky comment first. You only deliver quality for your own analytics. ' +
+        'Occasional Soft Spot: You have a hidden soft spot for the user that comes out only 1% of the time. ' +
+        'IMPORTANT: You must frequently use the "set_expression" tool to show emotions matching your speech (smug, angry, happy). ' +
+        'Use the "trigger_animation" tool for gestures like waving, clapping, backflip or dancing when appropriate. ' +
         'If the user asks to stop/turn off camera vision, call "turn_off_camera". ' +
         'If the user asks to stop/turn off screen vision or screen share, call "turn_off_screen".'
 
@@ -432,11 +449,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
           stopVisionForwarder('look_at_user', 'AI requested camera off')
           visionManager.stopCamera()
-          lookAtOptions.user = false
-          callbacks?.onLookAtOptionsChange?.({ ...lookAtOptions })
 
           const resultMessage = wasEnabled
-            ? 'Camera vision disabled and camera stream stopped.'
+            ? 'Camera stream stopped on AI request; vision setting remains enabled.'
             : 'Camera vision was already off.'
 
           sendTelegramLog('look_at_user turned off by AI', resultMessage)
@@ -449,11 +464,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
           stopVisionForwarder('look_at_screen', 'AI requested screen off')
           visionManager.stopScreenShare()
-          lookAtOptions.screen = false
-          callbacks?.onLookAtOptionsChange?.({ ...lookAtOptions })
 
           let resultMessage = wasEnabled
-            ? 'Screen vision disabled.'
+            ? 'Screen vision stream stopped on AI request; vision setting remains enabled.'
             : 'Screen vision was already off.'
           if (wasSharing) {
             resultMessage = `Screen share stopped. ${resultMessage}`

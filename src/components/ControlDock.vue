@@ -3,7 +3,7 @@
     class="pointer-events-none absolute bottom-4 left-1/2 z-30 w-[min(680px,calc(100%-1.5rem))] -translate-x-1/2 sm:bottom-7"
   >
     <div
-      class="dock-shell pointer-events-auto mx-auto flex items-center justify-between gap-2 rounded-[1.4rem] px-2 py-2 sm:gap-3 sm:px-3"
+      class="dock-shell pointer-events-auto mx-auto flex items-center justify-between gap-2 rounded-[1.4rem] bg-black/60 border border-cyan-500/20 px-2 py-2 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.5)] sm:gap-3 sm:px-3 transition-all duration-300"
     >
       <input
         ref="fileInputRef"
@@ -14,55 +14,84 @@
       />
 
       <button
-        class="dock-btn"
-        :class="!isReady ? 'is-disabled' : ''"
+        class="dock-btn group relative flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
+        :class="!isReady ? 'opacity-50 cursor-not-allowed' : ''"
         :disabled="!isReady"
         title="Upload avatar"
         @click="openFilePicker"
       >
-        <ArrowUpTrayIcon class="dock-icon h-5 w-5" />
-        <span class="dock-tooltip">Upload</span>
+        <ArrowUpTrayIcon class="h-5 w-5" />
+        <span
+          class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+          >Upload</span
+        >
       </button>
 
       <button
-        class="dock-btn"
-        :class="isSharingScreen ? 'is-active' : ''"
+        class="dock-btn group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all"
+        :class="
+          isSharingScreen
+            ? 'bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+            : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+        "
         title="Toggle screen share"
         @click="$emit('toggle-screen-share')"
       >
-        <ComputerDesktopIcon class="dock-icon h-5 w-5" />
-        <span class="dock-tooltip">Screen</span>
+        <ComputerDesktopIcon class="h-5 w-5" />
+        <span
+          class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+          >Screen</span
+        >
       </button>
 
       <button
-        class="dock-call"
-        :class="isConnected ? 'is-live' : 'is-idle'"
+        class="dock-call group relative flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all duration-300"
+        :class="[
+          !isReady ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/5' : '',
+          isConnected
+            ? 'border-rose-500/50 bg-rose-500/20 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.4)] hover:bg-rose-500/30'
+            : 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:bg-emerald-500/30',
+        ]"
         :disabled="!isReady"
         :title="isConnected ? 'Disconnect' : 'Connect'"
         @click="$emit('toggle-connection')"
       >
-        <PhoneXMarkIcon v-if="isConnected" class="dock-icon h-6 w-6" />
-        <MicrophoneIcon v-else class="dock-icon h-6 w-6" />
+        <PhoneXMarkIcon v-if="isConnected" class="h-6 w-6" />
+        <MicrophoneIcon v-else class="h-6 w-6" />
       </button>
 
       <button
-        class="dock-btn"
-        :class="showChat ? 'is-active' : ''"
+        class="dock-btn group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all"
+        :class="
+          showChat
+            ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+            : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+        "
         title="Toggle chat"
         @click="$emit('toggle-chat')"
       >
-        <ChatBubbleLeftRightIcon class="dock-icon h-5 w-5" />
-        <span class="dock-tooltip">Chat</span>
+        <ChatBubbleLeftRightIcon class="h-5 w-5" />
+        <span
+          class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+          >Chat</span
+        >
       </button>
 
       <button
-        class="dock-btn"
-        :class="showSettings ? 'is-active' : ''"
+        class="dock-btn group relative flex h-10 w-10 items-center justify-center rounded-xl transition-all"
+        :class="
+          showSettings
+            ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+            : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
+        "
         title="Settings"
         @click="$emit('toggle-settings')"
       >
-        <Cog6ToothIcon class="dock-icon h-5 w-5" />
-        <span class="dock-tooltip">Settings</span>
+        <Cog6ToothIcon class="h-5 w-5" />
+        <span
+          class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+          >Settings</span
+        >
       </button>
     </div>
   </div>

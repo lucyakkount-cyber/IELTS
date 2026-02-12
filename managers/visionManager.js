@@ -355,12 +355,22 @@
     this.stopScreenShare()
     this.stopCamera()
 
-    if (this.videoElement && this.videoElement.parentNode) {
-      document.body.removeChild(this.videoElement)
+    if (this.videoElement) {
+      this.videoElement.pause()
+      this.videoElement.srcObject = null
+      if (this.videoElement.parentNode) {
+        document.body.removeChild(this.videoElement)
+      }
+    }
+
+    if (this.screenVideoElement) {
+      this.screenVideoElement.pause()
+      this.screenVideoElement.srcObject = null
     }
 
     this.videoElement = null
     this.canvasElement = null
+    this.screenVideoElement = null
     this.isInitialized = false
   }
 }

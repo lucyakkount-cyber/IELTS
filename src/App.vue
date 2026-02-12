@@ -10,8 +10,8 @@
     <div class="app-vignette absolute inset-0 z-0"></div>
 
     <div
-      class="absolute inset-0 z-50 pointer-events-none transition-opacity duration-500"
-      :class="loadingState.progress >= 100 ? 'opacity-0' : 'opacity-100'"
+      class="absolute inset-0 z-50 pointer-events-none transition-opacity duration-[1000ms] ease-in-out"
+      :class="loadingState.progress >= 100 ? 'opacity-0 delay-200' : 'opacity-100'"
     >
       <SciFiLoader
         :progress="loadingState.progress"
@@ -25,17 +25,13 @@
     <Transition name="fade">
       <div
         v-if="dragActive"
-        class="absolute inset-0 z-40 m-3 sm:m-6 flex items-center justify-center rounded-3xl border border-[color:var(--accent-cyan)]/40 bg-[color:var(--surface-strong)]/45 backdrop-blur-xl"
+        class="absolute inset-0 z-40 m-3 sm:m-6 flex items-center justify-center rounded-3xl border border-cyan-500/40 bg-black/80 backdrop-blur-xl"
       >
-        <div class="rounded-2xl border border-[color:var(--accent-cyan)]/35 px-8 py-6 text-center">
-          <p
-            class="text-[11px] font-mono uppercase tracking-[0.22em] text-[color:var(--text-muted)]"
-          >
+        <div class="rounded-2xl border border-cyan-500/30 px-8 py-6 text-center">
+          <p class="text-[11px] font-mono uppercase tracking-[0.22em] text-cyan-200/70">
             Drag and Drop
           </p>
-          <p
-            class="mt-2 text-xl sm:text-2xl font-semibold tracking-wide text-[color:var(--text-primary)]"
-          >
+          <p class="mt-2 text-xl sm:text-2xl font-semibold tracking-wide text-white">
             Upload VRM Avatar
           </p>
         </div>
@@ -50,17 +46,15 @@
               class="h-2.5 w-2.5 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.06)]"
               :class="
                 isConnected
-                  ? 'bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.8)]'
-                  : 'bg-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.55)]'
+                  ? 'bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.8)]'
+                  : 'bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.55)]'
               "
             ></span>
-            <p
-              class="text-[11px] font-mono uppercase tracking-[0.18em] text-[color:var(--text-secondary)]"
-            >
+            <p class="text-[11px] font-mono uppercase tracking-[0.18em] text-white/50">
               {{ isConnected ? 'Live Session Active' : 'System Standby' }}
             </p>
           </div>
-          <p class="mt-2 text-sm text-[color:var(--text-muted)]">
+          <p class="mt-2 text-sm text-white/40">
             {{ isConnected ? 'Voice link stable' : 'Connect to start voice + vision tools' }}
           </p>
           <p
@@ -97,6 +91,9 @@
       v-model:avatarScale="avatarScale"
       v-model:lookAtUserEnabled="lookAtUserEnabled"
       v-model:lookAtScreenEnabled="lookAtScreenEnabled"
+      :availableModels="availableModels"
+      @switch-model="handleModelSwitch"
+      @delete-model="handleModelDelete"
       @close="showSettings = false"
     />
 
@@ -148,8 +145,6 @@ import ControlDock from './components/ControlDock.vue'
 import SciFiLoader from './components/SciFiLoader.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
-import { createVRMChatSystem } from '../managers/index.js'
-
 const canvasRef = ref(null)
 const system = ref(null)
 const systemReady = ref(false)
@@ -160,6 +155,7 @@ const showChat = ref(false)
 const showSettings = ref(false)
 const fps = ref(0)
 const toasts = ref([])
+const availableModels = ref([])
 const loadingState = ref({
   progress: 0,
   stage: 'Booting Engine',
@@ -346,12 +342,17 @@ const updateLoadingState = (next = {}) => {
   }
 }
 
+const selectedModelKey = ref(localStorage.getItem('vrm_selected_model_key') || null)
+
 onMounted(async () => {
   if (!canvasRef.value) return
 
   updateLoadingState({ progress: 8, stage: 'Booting Engine', detail: 'Initializing client' })
 
   try {
+    // Dynamic import to reduce initial bundle size
+    const { createVRMChatSystem } = await import('../managers/index.js')
+
     const initialUserName = (localStorage.getItem('vrm_user_name') || '').trim()
     const sys = await createVRMChatSystem(canvasRef.value, {
       onLoadProgress: updateLoadingState,
@@ -378,18 +379,64 @@ onMounted(async () => {
       )
     }
 
+    // Refresh models first to populate availableModels
+    await refreshModels()
+
     if (sys.vrm) {
+      // If vrm is already loaded by default logic in createVRMChatSystem, strictly speaking we might want to override it
+      // if the user has a different preferred model.
+      // However, createVRMChatSystem likely loads the default model hardcoded.
+      // We should check our preference.
+
+      if (selectedModelKey.value) {
+        // Verify if this key still exists in available models
+        const exists = availableModels.value.find((m) => m.key === selectedModelKey.value)
+        if (exists) {
+          console.log('Loading saved model preference:', selectedModelKey.value)
+          await system.value.loadNewVRM(selectedModelKey.value)
+        } else {
+          // Key expired or deleted? Revert to null
+          selectedModelKey.value = null
+          localStorage.removeItem('vrm_selected_model_key')
+        }
+      }
+
       systemReady.value = true
       sys.setAvatarScale(avatarScale.value)
       updateLoadingState({ progress: 100, stage: 'System Ready', detail: 'Avatar online' })
     } else {
-      systemReady.value = true
-      updateLoadingState({
-        progress: 100,
-        stage: 'System Ready',
-        detail: 'Upload a VRM model to continue',
-      })
-      showToast('Avatar Missing', 'Default model not found. Upload a .vrm file.', 'info')
+      // Fallback if no default model loaded (rare if code hasn't changed structure)
+      // But if we have a saved key, try loading it
+      if (selectedModelKey.value) {
+        try {
+          await system.value.loadNewVRM(selectedModelKey.value)
+          systemReady.value = true
+          sys.setAvatarScale(avatarScale.value)
+          updateLoadingState({
+            progress: 100,
+            stage: 'System Ready',
+            detail: 'Restored User Avatar',
+          })
+        } catch (e) {
+          console.warn('Failed to restore saved model', e)
+          // Fallback
+          systemReady.value = true
+          updateLoadingState({
+            progress: 100,
+            stage: 'System Ready',
+            detail: 'Upload a VRM model to continue',
+          })
+          showToast('Avatar Missing', 'Saved model not found. Upload a .vrm file.', 'info')
+        }
+      } else {
+        systemReady.value = true
+        updateLoadingState({
+          progress: 100,
+          stage: 'System Ready',
+          detail: 'Upload a VRM model to continue',
+        })
+        showToast('Avatar Missing', 'Default model not found. Upload a .vrm file.', 'info')
+      }
     }
   } catch (error) {
     console.error(error)
@@ -620,16 +667,117 @@ const handleDrop = async (event) => {
   }
 }
 
-const loadVRMFile = async (file) => {
-  if (!file.name.toLowerCase().endsWith('.vrm')) {
+const refreshModels = async () => {
+  if (system.value?.cacheManager) {
+    try {
+      const models = await system.value.cacheManager.getMetadataAll('models')
+      // Filter ONLY user models (hides default/internal paths)
+      const userModels = models.filter((m) => m.meta?.type === 'user')
+
+      // Sort by date descending
+      availableModels.value = userModels.sort((a, b) => {
+        const dateA = a.meta?.date || 0
+        const dateB = b.meta?.date || 0
+        return dateB - dateA
+      })
+    } catch (e) {
+      console.warn('Failed to refresh models', e)
+    }
+  }
+}
+
+const handleModelSwitch = async (modelKey) => {
+  if (!system.value) return
+
+  // If undefined/null, it means "Default"
+  if (!modelKey) {
+    await loadVRMFile({ name: 'Default', url: '/models/riko.vrm' }, true)
+    selectedModelKey.value = null
+    localStorage.removeItem('vrm_selected_model_key')
+    return
+  }
+
+  showToast('Switching Avatar', 'Loading cached model...', 'info')
+  try {
+    // Pass the key. vrmLoader will try cache first.
+    // If it's a "user" model, the key was used as the cache key.
+    await system.value.loadNewVRM(modelKey)
+    selectedModelKey.value = modelKey
+    localStorage.setItem('vrm_selected_model_key', modelKey)
+    showToast('Avatar Updated', 'Model loaded from cache.', 'success')
+  } catch (error) {
+    console.error(error)
+    showToast('Load Failed', 'Could not load cached model.', 'error')
+  }
+}
+
+const handleModelDelete = async (modelKey) => {
+  if (!system.value || !modelKey) return
+  if (confirm('Are you sure you want to delete this model?')) {
+    try {
+      await system.value.deleteModel(modelKey)
+      showToast('Deleted', 'Model removed from cache.', 'success')
+      // If deleted model was selected, revert preference?
+      if (selectedModelKey.value === modelKey) {
+        selectedModelKey.value = null
+        localStorage.removeItem('vrm_selected_model_key')
+      }
+      await refreshModels()
+    } catch {
+      showToast('Error', 'Failed to delete model.', 'error')
+    }
+  }
+}
+
+const loadVRMFile = async (file, isUrl = false) => {
+  if (!isUrl && !file.name.toLowerCase().endsWith('.vrm')) {
     showToast('Invalid File', 'Please upload a .vrm file.', 'error')
     return
   }
 
-  showToast('Loading Avatar', `Processing ${file.name}...`, 'info')
+  showToast('Loading Avatar', `Processing ${file.name || 'default model'}...`, 'info')
   try {
-    await system.value?.loadNewVRM(file)
+    // If uploading a new user file, DELETE ALL OLD USER MODELS FIRST
+    if (!isUrl && system.value?.cacheManager) {
+      try {
+        const allModels = await system.value.cacheManager.getMetadataAll('models')
+        const userModels = allModels.filter((m) => m.meta?.type === 'user')
+
+        for (const m of userModels) {
+          console.log('Removing old user model:', m.key)
+          await system.value.deleteModel(m.key)
+        }
+
+        // Clear available models locally to reflect immediate removal in UI
+        availableModels.value = []
+      } catch (e) {
+        console.warn('Failed to cleanup old models', e)
+      }
+    }
+
+    if (isUrl) {
+      await system.value?.loadNewVRM(file.url)
+    } else {
+      // system.loadNewVRM might return the key if we updated it?
+      // Actually loadNewVRM calls loader.loadVRMFromFile which caches it.
+      // We need to know what the key is to allow setting it as "selected".
+      // But vrmLoader currently doesn't return the key easily up the chain.
+      // However, since we are sorting by date, the newest one is likely the one we just added.
+      await system.value?.loadNewVRM(file)
+    }
     showToast('Avatar Updated', 'New model loaded successfully.', 'success')
+    await refreshModels()
+
+    // Auto-select the newest if it was a file upload (implies user wants it)
+    if (!isUrl && availableModels.value.length > 0) {
+      // The first one is the newest
+      const newest = availableModels.value[0]
+      // Is it the one we just uploaded? (meta.date is roughly now)
+      if (Date.now() - (newest.meta?.date || 0) < 5000) {
+        selectedModelKey.value = newest.key
+        localStorage.setItem('vrm_selected_model_key', newest.key)
+      }
+    }
   } catch {
     showToast('Load Failed', 'Could not load this VRM file.', 'error')
   }
