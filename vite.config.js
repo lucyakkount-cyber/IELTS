@@ -9,7 +9,13 @@ import vue from '@vitejs/plugin-vue'
 import basicSsl from '@vitejs/plugin-basic-ssl' // <--- IMPORT THIS
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
-const ALLOWED_TELEGRAM_METHODS = new Set(['sendMessage', 'sendPhoto', 'sendVideo', 'getUpdates'])
+const ALLOWED_TELEGRAM_METHODS = new Set([
+  'sendMessage',
+  'sendPhoto',
+  'sendVideo',
+  'sendDocument',
+  'getUpdates',
+])
 
 const createTelegramRelayMiddleware = (botToken) => {
   return async (req, res) => {
