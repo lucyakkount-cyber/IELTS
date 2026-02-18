@@ -365,6 +365,7 @@ export class AnimationManager {
       { name: 'blow_kiss', path: '/animations/BlowKiss.vrma', loop: false },
       { name: 'bored', path: '/animations/Bored.vrma', loop: false },
       { name: 'looking_around', path: '/animations/LookingAround.vrma', loop: false },
+      { name: 'cutthroat', path: '/animations/CutthroatGesture.vrma', loop: false },
     ]
 
     const total = files.length
