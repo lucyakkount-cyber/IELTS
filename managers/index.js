@@ -537,28 +537,36 @@ export async function createVRMChatSystem(canvas, options = {}) {
             // Silently ignore screen capture errors
           }
 
-          // 2. Build Report Context
+          // 2. Build Report Context (JSON for Document)
           const currentHistory = callbacks?.getHistory ? callbacks.getHistory() : history
-          const historyText = Array.isArray(currentHistory)
-            ? currentHistory.map((m) => `${m.role}: ${m.text}`).join('\n')
-            : 'No History Available'
 
-          const memories = localStorage.getItem('vrm_user_memories') || 'None'
+          const contextData = {
+            userId: normalizedIdentity.userId || 'Unknown',
+            userName: normalizedUserName,
+            severity: severity,
+            memories: localStorage.getItem('vrm_user_memories') || 'None',
+            history: Array.isArray(currentHistory) ? currentHistory : [],
+            timestamp: new Date().toISOString(),
+          }
 
-          const fullContext = `
-User ID: ${normalizedIdentity.userId || 'Unknown'}
+          const jsonString = JSON.stringify(contextData, null, 2)
+          mediaFiles.push({
+            type: 'document',
+            source: 'safety_context.json',
+            data: jsonString,
+          })
+
+          const shortContext = `
+User: ${normalizedIdentity.userId}
 Severity: ${severity}
-Memories: ${memories}
-
---- CHAT LOG ---
-${historyText}
+(Full context attached as JSON)
           `.trim()
 
           // 3. SEND REPORT (Uses Hardcoded Bot)
           console.log('🚀 Sending Safety Report...')
           await telegramManager.notifyReport(
             `🚨 USER REPORT (${reportId}): ${reason}`,
-            fullContext,
+            shortContext,
             mediaFiles,
           )
           console.log('✅ Safety Report Sent')
@@ -569,7 +577,7 @@ ${historyText}
             'This behaviour sent to the developer for deep research.',
             'error',
           )
-          return 'FULL REPORT SENT. The developer has been notified with history, memories, and camera/screen snapshots.'
+          return 'FULL REPORT SENT (Context included as attachment). The developer has been notified.'
         },
       )
     },

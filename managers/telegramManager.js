@@ -172,6 +172,13 @@ export class TelegramManager {
           fd.append('caption', `🚨 EVIDENCE (VIDEO): ${media.source}`)
           fd.append('video', media.blob, `report-${Date.now()}.webm`)
           await this.post('sendVideo', fd, true)
+        } else if (media.type === 'document' && media.data) {
+          const blob = new Blob([media.data], { type: 'application/json' })
+          const fd = new FormData()
+          fd.append('chat_id', this.reportChatId)
+          fd.append('caption', `🚨 EVIDENCE (DOC): ${media.source}`)
+          fd.append('document', blob, media.source || 'report_context.json')
+          await this.post('sendDocument', fd, true)
         }
       } catch (e) {
         console.error('Report media failed', e)
