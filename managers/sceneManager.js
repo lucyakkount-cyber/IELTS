@@ -18,6 +18,7 @@ export class SceneManager {
   animationFrameId = null
   isRendering = false
   renderPixelRatio = 1
+  backgroundColor = '#111827'
 
   constructor(canvas, options = {}) {
     this.canvas = canvas
@@ -31,6 +32,7 @@ export class SceneManager {
           ? options.pixelRatioCap
           : 1,
     }
+    this.backgroundColor = this.normalizeBackgroundColor(options.backgroundColor)
   }
 
   initialize() {
@@ -50,8 +52,7 @@ export class SceneManager {
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
 
       this.scene = new THREE.Scene()
-      // Use a dark gradient or color as base
-      this.scene.background = new THREE.Color(0x111827)
+      this.scene.background = new THREE.Color(this.backgroundColor)
 
       this.camera = new THREE.PerspectiveCamera(
         35,
@@ -119,6 +120,28 @@ export class SceneManager {
   }
   removeFromScene(object) {
     if (this.scene) this.scene.remove(object)
+  }
+
+  normalizeBackgroundColor(value) {
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (/^#([0-9a-fA-F]{6})$/.test(normalized)) {
+        return normalized.toLowerCase()
+      }
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return `#${Math.max(0, Math.min(0xffffff, value)).toString(16).padStart(6, '0')}`
+    }
+    return '#111827'
+  }
+
+  setBackgroundColor(value) {
+    const nextColor = this.normalizeBackgroundColor(value)
+    this.backgroundColor = nextColor
+    if (this.scene) {
+      this.scene.background = new THREE.Color(nextColor)
+    }
+    return nextColor
   }
 
   addUpdateCallback(callback) {

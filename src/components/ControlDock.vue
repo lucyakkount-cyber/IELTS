@@ -47,17 +47,17 @@
       <button
         class="dock-call group relative flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all duration-300"
         :class="[
-          !isReady ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/5' : '',
+          !isReady || isConnecting ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/5' : '',
           isConnected
             ? 'border-rose-500/50 bg-rose-500/20 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.4)] hover:bg-rose-500/30'
             : 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:bg-emerald-500/30',
         ]"
-        :disabled="!isReady"
-        :title="isConnected ? 'Disconnect' : 'Connect'"
+        :disabled="!isReady || isConnecting"
+        :title="isConnecting ? 'Connecting...' : isConnected ? 'Disconnect' : 'Connect'"
         @click="$emit('toggle-connection')"
       >
         <PhoneXMarkIcon v-if="isConnected" class="h-6 w-6" />
-        <MicrophoneIcon v-else class="h-6 w-6" />
+        <MicrophoneIcon v-else class="h-6 w-6" :class="isConnecting ? 'animate-pulse' : ''" />
       </button>
 
       <button
@@ -114,6 +114,10 @@ defineProps({
     default: false,
   },
   isConnected: Boolean,
+  isConnecting: {
+    type: Boolean,
+    default: false,
+  },
   isSharingScreen: Boolean,
   showChat: Boolean,
   showSettings: Boolean,

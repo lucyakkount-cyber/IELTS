@@ -134,6 +134,36 @@
       </div>
 
       <div class="space-y-3 pt-4 border-t border-white/5">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
+            Background Color
+          </p>
+          <div
+            class="rounded bg-cyan-950/50 border border-cyan-500/20 px-2 py-0.5 text-[10px] font-mono text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.1)]"
+          >
+            {{ props.backgroundColor }}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-3 py-2.5">
+          <input
+            type="color"
+            :value="props.backgroundColor"
+            class="h-9 w-12 cursor-pointer rounded-md border border-white/15 bg-black/40 p-0.5"
+            @input="handleBackgroundColorChange"
+          />
+          <input
+            type="text"
+            :value="props.backgroundColor"
+            maxlength="7"
+            spellcheck="false"
+            class="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-xs font-mono tracking-wide text-cyan-100/90 outline-none transition-colors focus:border-cyan-400/50"
+            @input="handleBackgroundColorChange"
+          />
+        </div>
+      </div>
+
+      <div class="space-y-3 pt-4 border-t border-white/5">
         <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
           Vision Sensors
         </p>
@@ -245,6 +275,10 @@ const props = defineProps({
     type: Number,
     required: true,
   },
+  backgroundColor: {
+    type: String,
+    default: '#111827',
+  },
   lookAtUserEnabled: {
     type: Boolean,
     default: true,
@@ -270,6 +304,7 @@ const props = defineProps({
 const emit = defineEmits([
   'close',
   'update:avatarScale',
+  'update:backgroundColor',
   'update:lookAtUserEnabled',
   'update:lookAtScreenEnabled',
   'switch-model',
@@ -279,6 +314,18 @@ const emit = defineEmits([
 
 const handleScaleChange = (event) => {
   emit('update:avatarScale', parseFloat(event.target.value))
+}
+
+const normalizeHexColor = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null
+}
+
+const handleBackgroundColorChange = (event) => {
+  const normalized = normalizeHexColor(event?.target?.value)
+  if (!normalized) return
+  emit('update:backgroundColor', normalized)
 }
 
 const toggleLookAtUser = () => {

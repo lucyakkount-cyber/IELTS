@@ -726,6 +726,10 @@ Severity: ${severity}
       }
     },
 
+    setBackgroundColor(color) {
+      return sceneManager.setBackgroundColor(color)
+    },
+
     setLookAtOptions(next = {}) {
       if (typeof next.user === 'boolean') {
         lookAtOptions.user = next.user

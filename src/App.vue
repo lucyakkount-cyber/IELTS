@@ -90,6 +90,7 @@
     <div v-if="showSettings" class="absolute inset-0 z-50" @click.self="showSettings = false">
       <SettingsPanel
         v-model:avatarScale="avatarScale"
+        v-model:backgroundColor="backgroundColor"
         v-model:lookAtUserEnabled="lookAtUserEnabled"
         v-model:lookAtScreenEnabled="lookAtScreenEnabled"
         :availableModels="availableModels"
@@ -123,6 +124,7 @@
     <ControlDock
       :isReady="systemReady"
       :isConnected="isConnected"
+      :isConnecting="isConnecting"
       :isSharingScreen="isSharingScreen"
       :showChat="showChat"
       :showSettings="showSettings"
@@ -173,6 +175,7 @@ const canvasRef = ref(null)
 const system = ref(null)
 const systemReady = ref(false)
 const isConnected = ref(false)
+const isConnecting = ref(false)
 const isSharingScreen = ref(false)
 const dragActive = ref(false)
 const showChat = ref(false)
@@ -188,6 +191,15 @@ const loadingState = ref({
 })
 
 const avatarScale = ref(parseFloat(localStorage.getItem('vrm_avatar_scale') || '2.0'))
+const BACKGROUND_COLOR_STORAGE_KEY = 'vrm_background_color'
+const normalizeHexColor = (value, fallback = '#111827') => {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : fallback
+}
+const backgroundColor = ref(
+  normalizeHexColor(localStorage.getItem(BACKGROUND_COLOR_STORAGE_KEY), '#111827'),
+)
 const lookAtUserEnabled = ref(localStorage.getItem('vrm_look_at_user') !== 'false')
 const lookAtScreenEnabled = ref(localStorage.getItem('vrm_look_at_screen') !== 'false')
 const chatHistory = ref([])
@@ -397,6 +409,18 @@ watch(avatarScale, (val) => {
   if (system.value) system.value.setAvatarScale(val)
 })
 
+watch(backgroundColor, (value) => {
+  const normalized = normalizeHexColor(value, '#111827')
+  if (normalized !== value) {
+    backgroundColor.value = normalized
+    return
+  }
+  localStorage.setItem(BACKGROUND_COLOR_STORAGE_KEY, normalized)
+  if (system.value) {
+    system.value.setBackgroundColor(normalized)
+  }
+})
+
 watch(lookAtUserEnabled, (value) => {
   localStorage.setItem('vrm_look_at_user', value ? 'true' : 'false')
   if (system.value) {
@@ -518,6 +542,7 @@ onMounted(async () => {
 
     system.value = sys
     cleanupSystem = sys.cleanup
+    sys.setBackgroundColor(backgroundColor.value)
     sys.setLookAtOptions({
       user: lookAtUserEnabled.value,
       screen: lookAtScreenEnabled.value,
@@ -670,6 +695,7 @@ const toggleSettingsPanel = () => {
 
 const toggleConnection = async () => {
   if (!system.value || !systemReady.value) return
+  if (isConnecting.value) return
 
   if (!system.value.vrm) {
     showToast('No Avatar', 'Load a VRM model before connecting.', 'error')
@@ -683,6 +709,7 @@ const toggleConnection = async () => {
   }
 
   showToast('Connecting', 'Establishing live voice session...', 'info')
+  isConnecting.value = true
 
   try {
     await system.value.connect(
@@ -803,6 +830,8 @@ const toggleConnection = async () => {
     trackReconnectIssue()
     showToast('Connection Failed', error.message, 'error')
     isConnected.value = false
+  } finally {
+    isConnecting.value = false
   }
 }
 
