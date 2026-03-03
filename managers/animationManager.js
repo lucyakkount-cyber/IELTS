@@ -20,6 +20,7 @@ export class AnimationManager {
   mouthKeys = ['aa', 'ee', 'ih', 'oh', 'ou']
   activeExpressionKeys = new Set(this.coreMoodKeys)
   supportedExpressionTrackCache = new Map()
+  backgroundLoadPromise = null
 
   // Blink State
   blinkTimer = 0
@@ -358,19 +359,11 @@ export class AnimationManager {
     return Object.keys(this.actions)
   }
 
-  async initialize(options = {}) {
-    const { onProgress } = options
-    console.log('🔄 AnimationManager: Loading clips...')
-    this.mixer.addEventListener('finished', (e) => this.onAnimationFinished(e))
-
-    const repoBase =
-      'https://raw.githubusercontent.com/lucyakkount-cyber/VRM_1/main/public/animations'
-
-    // Updated file list based on reference
-    const files = [
+  getAnimationCatalog() {
+    return [
       { name: 'HappyIdle', path: '/animations/HappyIdle.vrma', loop: true },
       { name: 'wave', path: '/animations/Waving.vrma', loop: false },
-      { name: 'Macarena_dance', path: '/animations/MacarenaDance.vrma', loop: true }, // Loop true based on ref logic usually, or explicit instruction
+      { name: 'Macarena_dance', path: '/animations/MacarenaDance.vrma', loop: true },
       { name: 'dance', path: '/animations/HipHopDance.vrma', loop: false },
       { name: 'clap', path: '/animations/Clapping.vrma', loop: false },
       { name: 'thumbs_up', path: '/animations/ThumbsUp.vrma', loop: false },
@@ -386,21 +379,93 @@ export class AnimationManager {
       { name: 'looking_around', path: '/animations/LookingAround.vrma', loop: false },
       { name: 'cutthroat', path: '/animations/CutthroatGesture.vrma', loop: false },
     ]
+  }
 
+  getAnimationRepoBase() {
+    return 'https://raw.githubusercontent.com/lucyakkount-cyber/VRM_1/main/public/animations'
+  }
+
+  async loadAnimationFile(file) {
+    if (!file?.name || this.actions[file.name]) {
+      return this.actions[file?.name] || null
+    }
+
+    const remoteUrl = `${this.getAnimationRepoBase()}/${file.path.split('/').pop()}`
+    await this.loadClipWithFallback(file.name, file.path, remoteUrl, file.loop)
+    return this.actions[file.name] || null
+  }
+
+  async loadAnimationBatch(files, options = {}) {
+    const { onProgress, continueOnError = false } = options
     const total = files.length
+
     for (const [index, file] of files.entries()) {
-      const remoteUrl = `${repoBase}/${file.path.split('/').pop()}`
-      await this.loadClipWithFallback(file.name, file.path, remoteUrl, file.loop)
+      try {
+        await this.loadAnimationFile(file)
+      } catch (error) {
+        if (!continueOnError) {
+          throw error
+        }
+        console.warn(`AnimationManager: Skipped animation '${file.name}'`, error)
+      }
+
       onProgress?.({
         current: index + 1,
         total,
         name: file.name,
       })
     }
+  }
 
-    console.log('✅ AnimationManager Ready')
+  startBackgroundAnimationLoad(options = {}) {
+    if (this.backgroundLoadPromise) {
+      return this.backgroundLoadPromise
+    }
+
+    const { onProgress } = options
+    const remainingFiles = this.getAnimationCatalog().filter((file) => !this.actions[file.name])
+    if (remainingFiles.length === 0) {
+      return Promise.resolve()
+    }
+
+    this.backgroundLoadPromise = this.loadAnimationBatch(remainingFiles, {
+      onProgress,
+      continueOnError: true,
+    }).finally(() => {
+      this.backgroundLoadPromise = null
+    })
+
+    return this.backgroundLoadPromise
+  }
+
+  async initialize(options = {}) {
+    const {
+      onProgress,
+      initialAnimations = null,
+      loadRemainingInBackground = false,
+      onBackgroundProgress,
+    } = options
+    console.log('AnimationManager: Loading clips...')
+    this.mixer.addEventListener('finished', (e) => this.onAnimationFinished(e))
+
+    const files = this.getAnimationCatalog()
+    const initialSet =
+      Array.isArray(initialAnimations) && initialAnimations.length > 0
+        ? new Set([this.mainIdle, ...initialAnimations])
+        : null
+    const initialFiles = initialSet ? files.filter((file) => initialSet.has(file.name)) : files
+
+    await this.loadAnimationBatch(initialFiles, { onProgress })
+
+    console.log('AnimationManager Ready')
     if (this.actions[this.mainIdle]) {
       this.play(this.mainIdle)
+    }
+
+    if (loadRemainingInBackground) {
+      void this.startBackgroundAnimationLoad({
+        onProgress: onBackgroundProgress,
+      })
     }
   }
 

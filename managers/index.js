@@ -243,9 +243,11 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
       animationManager = new AnimationManager(vrm, sceneManager.camera)
       await animationManager.initialize({
+        initialAnimations: ['HappyIdle'],
+        loadRemainingInBackground: true,
         onProgress: ({ current, total, name }) => {
           const ratio = total > 0 ? current / total : 1
-          reportLoad(72 + ratio * 22, 'Loading Animations', `${current}/${total}: ${name}`)
+          reportLoad(72 + ratio * 22, 'Loading Core Animation', `${current}/${total}: ${name}`)
         },
       })
 
