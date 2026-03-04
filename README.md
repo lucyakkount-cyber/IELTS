@@ -58,38 +58,29 @@ A state-of-the-art interactive 3D Avatar system powered by Google Gemini 2.0 Fla
 - Node.js 18+
 - Google Gemini API Key
 
-### Installation
-
-1.  **Clone the repository**
-
-    ```bash
-    git clone https://github.com/your-username/quantum-vrm.git
-    cd quantum-vrm
-    ```
-
-2.  **Install dependencies**
-
-    ```bash
-    npm install
-    ```
-
-3.  **Configure Environment**
-    Create a `.env` file in the root directory:
-
-    ```env
-    VITE_GEMINI_API_KEY=your_api_key_here
-    ```
-
-4.  **Run Development Server**
-    ```bash
-    npm run dev
-    ```
-
 ## 🎮 Controls
 
 - **Microphone**: Click the connection toggle to start a live voice session.
 - **Camera**: Toggle vision to let Rico "see" you (Face tracking enabled).
 - **Screen Share**: Show your screen for analysis.
 - **Drag & Drop**: Drag any `.vrm` file into the window to swap your avatar instantly.
+
+## New Functions (Latest Update)
+
+### AnimationManager updates
+
+- `getAnimationCatalog()` returns the full built-in animation list with names, paths, and loop settings.
+- `loadAnimationFile(file)` loads one animation with local-first plus remote fallback support.
+- `loadAnimationBatch(files, { onProgress, continueOnError })` loads multiple clips with progress callbacks.
+- `startBackgroundAnimationLoad({ onProgress })` preloads remaining animations in the background.
+- `initialize({ initialAnimations, loadRemainingInBackground, onBackgroundProgress })` supports staged startup loading.
+- `triggerNamedAnimation(name)` now supports case-insensitive lookup and lazy loading from the catalog.
+- `loadClipWithFallback(name, localPath, remoteUrl, isLoop)` retries animation loading from a backup source.
+
+### Telegram relay updates
+
+- `relayTelegramMethod(req, res, methodName)` now forwards both `GET` and `POST` Telegram Bot API calls.
+- `buildQueryString(query)` serializes query params (including arrays) for Telegram `GET` methods.
+- `readRequestBody(req)` safely forwards raw request payloads for multipart form-data and JSON requests.
 
 ---
