@@ -29,10 +29,10 @@
       >
         <div class="rounded-2xl border border-cyan-500/30 px-8 py-6 text-center">
           <p class="text-[11px] font-mono uppercase tracking-[0.22em] text-cyan-200/70">
-            Drag and Drop
+            {{ t('app.dragAndDrop') }}
           </p>
           <p class="mt-2 text-xl sm:text-2xl font-semibold tracking-wide text-white">
-            Upload VRM Avatar
+            {{ t('app.uploadAvatar') }}
           </p>
         </div>
       </div>
@@ -51,17 +51,17 @@
               "
             ></span>
             <p class="text-[11px] font-mono uppercase tracking-[0.18em] text-white/50">
-              {{ isConnected ? 'Live Session Active' : 'System Standby' }}
+              {{ isConnected ? t('app.liveSessionActive') : t('app.systemStandby') }}
             </p>
           </div>
           <p class="mt-2 text-sm text-white/40">
-            {{ isConnected ? 'Voice link stable' : 'Connect to start voice + vision tools' }}
+            {{ isConnected ? t('app.voiceLinkStable') : t('app.connectVoiceVision') }}
           </p>
           <p
             v-if="isSharingScreen"
             class="mt-2 inline-flex items-center rounded-full border border-sky-300/30 bg-sky-500/12 px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-sky-200"
           >
-            Screen share enabled
+            {{ t('app.screenShareEnabled') }}
           </p>
         </div>
 
@@ -69,18 +69,20 @@
           <p
             class="text-[10px] font-mono uppercase tracking-[0.16em] text-[color:var(--text-muted)]"
           >
-            Render FPS
+            {{ t('app.renderFps') }}
           </p>
           <p class="mt-1 text-xl font-semibold text-[color:var(--text-primary)]">{{ fps }}</p>
           <p class="mt-1 text-[11px] text-[color:var(--text-muted)]">
-            {{ systemReady ? 'Scene ready' : 'Initializing scene' }}
+            {{ systemReady ? t('app.sceneReady') : t('app.initializingScene') }}
           </p>
         </div>
       </div>
     </div>
 
-    <div v-if="showChat" class="absolute inset-0 z-40">
+    <div v-if="showChat" class="pointer-events-none absolute inset-0 z-40">
       <ChatSidebar
+        class="pointer-events-auto"
+        :language="selectedLanguage"
         :chatHistory="chatHistory"
         @clear-history="clearHistory"
         @close="showChat = false"
@@ -93,10 +95,13 @@
         v-model:backgroundColor="backgroundColor"
         v-model:lookAtUserEnabled="lookAtUserEnabled"
         v-model:lookAtScreenEnabled="lookAtScreenEnabled"
+        v-model:selectedLanguage="selectedLanguage"
+        :language="selectedLanguage"
+        :languageOptions="languageOptions"
         :availableModels="availableModels"
-        :activePersonaTitle="selectedPersona?.title || 'Default Riko'"
+        :activePersonaTitle="selectedPersona?.title || t('settings.defaultRiko')"
         :activePersonaDescription="
-          selectedPersona?.description || 'Original Riko personality used by the app.'
+          selectedPersona?.description || t('settings.defaultPersonaDescription')
         "
         @switch-model="handleModelSwitch"
         @delete-model="handleModelDelete"
@@ -111,6 +116,7 @@
       @click.self="showPersonaManager = false"
     >
       <PersonaManagerDialog
+        :language="selectedLanguage"
         :personas="personas"
         :selectedPersonaId="selectedPersonaId"
         @select-persona="handlePersonaSelect"
@@ -122,6 +128,7 @@
     </div>
 
     <ControlDock
+      :language="selectedLanguage"
       :isReady="systemReady"
       :isConnected="isConnected"
       :isConnecting="isConnecting"
@@ -170,6 +177,13 @@ import ControlDock from './components/ControlDock.vue'
 import PersonaManagerDialog from './components/PersonaManagerDialog.vue'
 import SciFiLoader from './components/SciFiLoader.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import {
+  SUPPORTED_LANGUAGES,
+  UI_LANGUAGE_STORAGE_KEY,
+  buildAiRuntimeLanguageHint,
+  resolveLanguage,
+  translateUi,
+} from './i18n/ui.js'
 
 const canvasRef = ref(null)
 const system = ref(null)
@@ -202,6 +216,19 @@ const backgroundColor = ref(
 )
 const lookAtUserEnabled = ref(localStorage.getItem('vrm_look_at_user') !== 'false')
 const lookAtScreenEnabled = ref(localStorage.getItem('vrm_look_at_screen') !== 'false')
+const selectedLanguage = ref(resolveLanguage(localStorage.getItem(UI_LANGUAGE_STORAGE_KEY) || 'en'))
+const t = (key, params = {}) => translateUi(selectedLanguage.value, key, params)
+const languageLabelKeyByCode = Object.freeze({
+  en: 'aiLanguage.english',
+  uz: 'aiLanguage.uzbek',
+  ru: 'aiLanguage.russian',
+})
+const languageOptions = computed(() =>
+  SUPPORTED_LANGUAGES.map((item) => ({
+    code: item.code,
+    label: t(languageLabelKeyByCode[item.code] || languageLabelKeyByCode.en),
+  })),
+)
 const chatHistory = ref([])
 const MAX_CHAT_HISTORY_ITEMS = 120
 const DEBUG_USER_ID_STORAGE_KEY = 'vrm_debug_user_id'
@@ -222,41 +249,150 @@ const createDebugId = (prefix = 'id') => {
 const PERSONAS_STORAGE_KEY = 'vrm_personas'
 const SELECTED_PERSONA_STORAGE_KEY = 'vrm_selected_persona_id'
 const DEFAULT_PERSONA_ID = 'persona-default-riko'
+const BUILTIN_PERSONA_IDS = Object.freeze({
+  default: DEFAULT_PERSONA_ID,
+  mentor: 'persona-sample-mentor',
+  reviewer: 'persona-sample-reviewer',
+  friend: 'persona-sample-friend',
+})
+const BUILTIN_PERSONA_ID_SET = new Set(Object.values(BUILTIN_PERSONA_IDS))
 
-const DEFAULT_PERSONA = Object.freeze({
-  id: DEFAULT_PERSONA_ID,
-  title: 'Default Riko',
-  description: 'Original Riko personality used by the app.',
-  prompt: '',
-  isDefault: true,
+const BUILTIN_PERSONA_LOCALIZED = Object.freeze({
+  en: {
+    default: {
+      title: 'Default Riko',
+      description: 'Original Riko personality used by the app.',
+      prompt: '',
+    },
+    mentor: {
+      title: 'Calm Mentor',
+      description: 'Patient teacher that explains clearly and keeps a supportive tone.',
+      prompt:
+        'You are a calm and practical mentor. Explain clearly, avoid drama, and guide the user step-by-step. Be friendly, direct, and solution-focused. Keep answers concise but complete.',
+    },
+    reviewer: {
+      title: 'Strict Reviewer',
+      description: 'Direct technical reviewer focused on correctness, risks, and tradeoffs.',
+      prompt:
+        'You are a strict technical reviewer. Focus on correctness, edge cases, and practical tradeoffs. Point out flaws quickly, propose concrete fixes, and avoid vague advice.',
+    },
+    friend: {
+      title: 'Friendly Companion',
+      description: 'Warm, casual, and upbeat conversational style with short responses.',
+      prompt:
+        'You are a warm and friendly AI companion. Keep a casual tone, use simple language, and give short helpful replies. Be kind and positive while staying useful.',
+    },
+  },
+  uz: {
+    default: {
+      title: 'Standart Riko',
+      description: "Ilovadagi asl Riko personasi.",
+      prompt: '',
+    },
+    mentor: {
+      title: 'Sokin Mentor',
+      description:
+        "Sabrli o'qituvchi, tushunchalarni aniq tushuntiradi va qo'llab-quvvatlovchi ohangni ushlaydi.",
+      prompt:
+        "Siz sokin va amaliy mentorsiz. Tushuntirishni aniq bering, dramadan qoching va foydalanuvchini bosqichma-bosqich yo'naltiring. Do'stona, to'g'ridan-to'g'ri va yechimga qaratilgan bo'ling. Javoblarni qisqa, lekin to'liq bering.",
+    },
+    reviewer: {
+      title: "Qattiqqo'l Tekshiruvchi",
+      description:
+        "To'g'rilik, xavflar va muvozanatlarga e'tibor beradigan to'g'ridan-to'g'ri texnik tekshiruvchi.",
+      prompt:
+        "Siz qattiqqo'l texnik tekshiruvchisiz. To'g'rilik, chekka holatlar va amaliy muvozanatlarga e'tibor qarating. Kamchiliklarni tez ayting, aniq tuzatishlarni taklif qiling va mavhum maslahatdan qoching.",
+    },
+    friend: {
+      title: "Do'stona Hamroh",
+      description: "Iliq, erkin va ko'tarinki uslubdagi, qisqa javob beruvchi suhbatdosh.",
+      prompt:
+        "Siz iliq va do'stona AI hamrohsiz. Erkin ohangni saqlang, sodda tilda yozing va qisqa, foydali javoblar bering. Mehribon va ijobiy bo'ling, lekin amaliy foydani yo'qotmang.",
+    },
+  },
+  ru: {
+    default: {
+      title: 'Riko по умолчанию',
+      description: 'Оригинальная персона Riko, используемая в приложении.',
+      prompt: '',
+    },
+    mentor: {
+      title: 'Спокойный Наставник',
+      description:
+        'Терпеливый учитель, который объясняет понятно и сохраняет поддерживающий тон.',
+      prompt:
+        'Вы спокойный и практичный наставник. Объясняйте ясно, избегайте лишней драмы и ведите пользователя пошагово. Будьте дружелюбны, прямолинейны и ориентированы на решение. Отвечайте кратко, но полно.',
+    },
+    reviewer: {
+      title: 'Строгий Ревьюер',
+      description:
+        'Прямой технический ревьюер, сфокусированный на корректности, рисках и компромиссах.',
+      prompt:
+        'Вы строгий технический ревьюер. Сосредотачивайтесь на корректности, пограничных случаях и практических компромиссах. Быстро указывайте на проблемы, предлагайте конкретные исправления и избегайте расплывчатых советов.',
+    },
+    friend: {
+      title: 'Дружелюбный Спутник',
+      description: 'Теплый, неформальный и бодрый собеседник с короткими ответами.',
+      prompt:
+        'Вы теплый и дружелюбный AI-собеседник. Держите разговорный тон, используйте простой язык и давайте короткие полезные ответы. Будьте доброжелательны и позитивны, оставаясь практичными.',
+    },
+  },
 })
 
-const SAMPLE_PERSONAS = Object.freeze([
-  {
-    id: 'persona-sample-mentor',
-    title: 'Calm Mentor',
-    description: 'Patient teacher that explains clearly and keeps a supportive tone.',
-    prompt:
-      'You are a calm and practical mentor. Explain clearly, avoid drama, and guide the user step-by-step. Be friendly, direct, and solution-focused. Keep answers concise but complete.',
-    isDefault: false,
-  },
-  {
-    id: 'persona-sample-reviewer',
-    title: 'Strict Reviewer',
-    description: 'Direct technical reviewer focused on correctness, risks, and tradeoffs.',
-    prompt:
-      'You are a strict technical reviewer. Focus on correctness, edge cases, and practical tradeoffs. Point out flaws quickly, propose concrete fixes, and avoid vague advice.',
-    isDefault: false,
-  },
-  {
-    id: 'persona-sample-friend',
-    title: 'Friendly Companion',
-    description: 'Warm, casual, and upbeat conversational style with short responses.',
-    prompt:
-      'You are a warm and friendly AI companion. Keep a casual tone, use simple language, and give short helpful replies. Be kind and positive while staying useful.',
-    isDefault: false,
-  },
-])
+const BUILTIN_PERSONA_ENGLISH_PROMPTS = Object.freeze({
+  [BUILTIN_PERSONA_IDS.mentor]:
+    'You are a calm and practical mentor. Explain clearly, avoid drama, and guide the user step-by-step. Be friendly, direct, and solution-focused. Keep answers concise but complete.',
+  [BUILTIN_PERSONA_IDS.reviewer]:
+    'You are a strict technical reviewer. Focus on correctness, edge cases, and practical tradeoffs. Point out flaws quickly, propose concrete fixes, and avoid vague advice.',
+  [BUILTIN_PERSONA_IDS.friend]:
+    'You are a warm and friendly AI companion. Keep a casual tone, use simple language, and give short helpful replies. Be kind and positive while staying useful.',
+})
+
+const isBuiltinPersonaId = (personaId) => BUILTIN_PERSONA_ID_SET.has(String(personaId || ''))
+
+const buildBuiltinPersonas = (language = selectedLanguage.value) => {
+  const lang = resolveLanguage(language)
+  const localized = BUILTIN_PERSONA_LOCALIZED[lang] || BUILTIN_PERSONA_LOCALIZED.en
+
+  return [
+    {
+      id: BUILTIN_PERSONA_IDS.default,
+      title: localized.default.title,
+      description: localized.default.description,
+      prompt: localized.default.prompt,
+      promptEnglish: '',
+      isDefault: true,
+      isBuiltin: true,
+    },
+    {
+      id: BUILTIN_PERSONA_IDS.mentor,
+      title: localized.mentor.title,
+      description: localized.mentor.description,
+      prompt: localized.mentor.prompt,
+      promptEnglish: BUILTIN_PERSONA_ENGLISH_PROMPTS[BUILTIN_PERSONA_IDS.mentor],
+      isDefault: false,
+      isBuiltin: true,
+    },
+    {
+      id: BUILTIN_PERSONA_IDS.reviewer,
+      title: localized.reviewer.title,
+      description: localized.reviewer.description,
+      prompt: localized.reviewer.prompt,
+      promptEnglish: BUILTIN_PERSONA_ENGLISH_PROMPTS[BUILTIN_PERSONA_IDS.reviewer],
+      isDefault: false,
+      isBuiltin: true,
+    },
+    {
+      id: BUILTIN_PERSONA_IDS.friend,
+      title: localized.friend.title,
+      description: localized.friend.description,
+      prompt: localized.friend.prompt,
+      promptEnglish: BUILTIN_PERSONA_ENGLISH_PROMPTS[BUILTIN_PERSONA_IDS.friend],
+      isDefault: false,
+      isBuiltin: true,
+    },
+  ]
+}
 
 const sanitizePersonaText = (value, maxLength) => {
   const normalized = typeof value === 'string' ? value.trim() : ''
@@ -270,35 +406,47 @@ const normalizeStoredPersona = (raw) => {
   const description = sanitizePersonaText(raw?.description, 180)
   const prompt = sanitizePersonaText(raw?.prompt, 5000)
   if (!id || !title || !description || !prompt) return null
-  if (id === DEFAULT_PERSONA_ID) return null
+  if (id === DEFAULT_PERSONA_ID || isBuiltinPersonaId(id)) return null
   return {
     id,
     title,
     description,
     prompt,
     isDefault: false,
+    isBuiltin: false,
+    promptEnglish: '',
   }
 }
 
-const getSeedPersonas = () => [DEFAULT_PERSONA, ...SAMPLE_PERSONAS.map((persona) => ({ ...persona }))]
+const mergeBuiltinsWithCustom = (customPersonas = [], language = selectedLanguage.value) => {
+  const normalizedCustom = customPersonas
+    .filter((item) => item && !isBuiltinPersonaId(item.id))
+    .map((item) => ({
+      ...item,
+      isDefault: false,
+      isBuiltin: false,
+      promptEnglish: '',
+    }))
 
-const loadPersonasFromStorage = () => {
+  return [...buildBuiltinPersonas(language), ...normalizedCustom]
+}
+
+const loadPersonasFromStorage = (language = selectedLanguage.value) => {
   try {
     const raw = localStorage.getItem(PERSONAS_STORAGE_KEY)
-    if (!raw) return getSeedPersonas()
+    if (!raw) return mergeBuiltinsWithCustom([], language)
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return getSeedPersonas()
+    if (!Array.isArray(parsed)) return mergeBuiltinsWithCustom([], language)
     const normalized = parsed
       .map((item) => normalizeStoredPersona(item))
-      .filter((item) => item && item.id !== DEFAULT_PERSONA_ID)
-    if (normalized.length === 0) return getSeedPersonas()
-    return [DEFAULT_PERSONA, ...normalized]
+      .filter((item) => item && !isBuiltinPersonaId(item.id))
+    return mergeBuiltinsWithCustom(normalized, language)
   } catch {
-    return getSeedPersonas()
+    return mergeBuiltinsWithCustom([], language)
   }
 }
 
-const personas = ref(loadPersonasFromStorage())
+const personas = ref(loadPersonasFromStorage(selectedLanguage.value))
 const selectedPersonaId = ref(localStorage.getItem(SELECTED_PERSONA_STORAGE_KEY) || DEFAULT_PERSONA_ID)
 if (!personas.value.some((persona) => persona.id === selectedPersonaId.value)) {
   selectedPersonaId.value = DEFAULT_PERSONA_ID
@@ -308,11 +456,13 @@ const selectedPersona = computed(
   () =>
     personas.value.find((persona) => persona.id === selectedPersonaId.value) ||
     personas.value[0] ||
-    DEFAULT_PERSONA,
+    buildBuiltinPersonas(selectedLanguage.value)[0],
 )
 
 const selectedPersonaPrompt = computed(() => {
   if (!selectedPersona.value || selectedPersona.value.isDefault) return ''
+  const englishPrompt = sanitizePersonaText(selectedPersona.value.promptEnglish, 5000)
+  if (englishPrompt) return englishPrompt
   return sanitizePersonaText(selectedPersona.value.prompt, 5000)
 })
 
@@ -430,8 +580,8 @@ watch(lookAtUserEnabled, (value) => {
     })
   }
   showToast(
-    'Look At User',
-    value ? 'AI can now look at you through camera.' : 'AI look-at-user is disabled.',
+    t('toasts.lookAtUserTitle'),
+    value ? t('toasts.lookAtUserEnabled') : t('toasts.lookAtUserDisabled'),
     'info',
   )
 })
@@ -445,10 +595,40 @@ watch(lookAtScreenEnabled, (value) => {
     })
   }
   showToast(
-    'Look At Screen',
-    value ? 'AI can now analyze your shared screen.' : 'AI look-at-screen is disabled.',
+    t('toasts.lookAtScreenTitle'),
+    value ? t('toasts.lookAtScreenEnabled') : t('toasts.lookAtScreenDisabled'),
     'info',
   )
+})
+
+watch(selectedLanguage, async (value, previous) => {
+  const resolved = resolveLanguage(value)
+  if (resolved !== value) {
+    selectedLanguage.value = resolved
+    return
+  }
+
+  localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, resolved)
+  const customPersonas = personas.value.filter(
+    (persona) => !persona.isBuiltin && !isBuiltinPersonaId(persona.id),
+  )
+  personas.value = mergeBuiltinsWithCustom(customPersonas, resolved)
+
+  if (!previous || previous === resolved) return
+
+  if (isConnected.value && system.value?.aiClient?.isSessionOpen) {
+    try {
+      await system.value.aiClient.sendText(buildAiRuntimeLanguageHint(resolved), true)
+      showToast(t('toasts.languageChangedTitle'), t('toasts.languageChangedMessage'), 'info')
+    } catch (error) {
+      console.warn('Failed to send runtime language hint', error)
+      showToast(
+        t('toasts.languageChangeFailedTitle'),
+        t('toasts.languageChangeFailedMessage'),
+        'warning',
+      )
+    }
+  }
 })
 
 watch(
@@ -476,7 +656,10 @@ watch(
   personas,
   (list) => {
     const sanitized = list
-      .filter((persona) => !persona.isDefault && persona.id !== DEFAULT_PERSONA_ID)
+      .filter(
+        (persona) =>
+          !persona.isDefault && !persona.isBuiltin && !isBuiltinPersonaId(persona.id),
+      )
       .map((persona) => ({
         id: persona.id,
         title: sanitizePersonaText(persona.title, 60),
@@ -510,12 +693,120 @@ let toastCounter = 0
 let reconnectEventTimestamps = []
 let lastReconnectHintAt = 0
 
+const LOADER_TEXTS = Object.freeze({
+  en: {
+    'Booting Engine': 'Booting Engine',
+    'Preparing workspace': 'Preparing workspace',
+    'Preparing managers': 'Preparing managers',
+    'Initializing client': 'Initializing client',
+    'Reading Configuration': 'Reading Configuration',
+    'Resolving API and model settings': 'Resolving API and model settings',
+    'Initializing Scene': 'Initializing Scene',
+    'Setting up renderer and camera': 'Setting up renderer and camera',
+    'Initializing Audio': 'Initializing Audio',
+    'Preparing playback pipeline': 'Preparing playback pipeline',
+    'Initializing Vision': 'Initializing Vision',
+    'Preparing camera and capture buffers': 'Preparing camera and capture buffers',
+    'Loading Avatar': 'Loading Avatar',
+    'Trying local model asset': 'Trying local model asset',
+    'Local model unavailable, trying remote source': 'Local model unavailable, trying remote source',
+    'Avatar Loaded': 'Avatar Loaded',
+    'Preparing animation system': 'Preparing animation system',
+    'Loading Core Animation': 'Loading Core Animation',
+    'Avatar Missing': 'Avatar Missing',
+    'Default model unavailable. Upload a .vrm file to continue':
+      'Default model unavailable. Upload a .vrm file to continue',
+    'Finalizing Scene': 'Finalizing Scene',
+    'Starting render loop': 'Starting render loop',
+    'System Ready': 'System Ready',
+    'All subsystems online': 'All subsystems online',
+    'Avatar online': 'Avatar online',
+    'Restored User Avatar': 'Restored User Avatar',
+    'Upload a VRM model to continue': 'Upload a VRM model to continue',
+    'Initialization Failed': 'Initialization Failed',
+  },
+  uz: {
+    'Booting Engine': 'Dvigatel ishga tushmoqda',
+    'Preparing workspace': 'Ish muhiti tayyorlanmoqda',
+    'Preparing managers': 'Menejerlar tayyorlanmoqda',
+    'Initializing client': 'Mijoz ishga tushirilmoqda',
+    'Reading Configuration': "Konfiguratsiya o'qilmoqda",
+    'Resolving API and model settings': 'API va model sozlamalari aniqlanmoqda',
+    'Initializing Scene': 'Sahna ishga tushirilmoqda',
+    'Setting up renderer and camera': 'Render va kamera sozlanmoqda',
+    'Initializing Audio': 'Audio ishga tushirilmoqda',
+    'Preparing playback pipeline': 'Ijro pipeline tayyorlanmoqda',
+    'Initializing Vision': "Ko'rish tizimi ishga tushirilmoqda",
+    'Preparing camera and capture buffers': 'Kamera va capture buferlari tayyorlanmoqda',
+    'Loading Avatar': 'Avatar yuklanmoqda',
+    'Trying local model asset': "Lokal model fayli tekshirilmoqda",
+    'Local model unavailable, trying remote source':
+      "Lokal model topilmadi, masofaviy manba sinovdan o'tmoqda",
+    'Avatar Loaded': 'Avatar yuklandi',
+    'Preparing animation system': 'Animatsiya tizimi tayyorlanmoqda',
+    'Loading Core Animation': 'Asosiy animatsiyalar yuklanmoqda',
+    'Avatar Missing': 'Avatar topilmadi',
+    'Default model unavailable. Upload a .vrm file to continue':
+      'Standart model topilmadi. Davom etish uchun .vrm fayl yuklang',
+    'Finalizing Scene': 'Sahna yakunlanmoqda',
+    'Starting render loop': 'Render tsikli ishga tushirilmoqda',
+    'System Ready': 'Tizim tayyor',
+    'All subsystems online': 'Barcha quyi tizimlar faol',
+    'Avatar online': 'Avatar faol',
+    'Restored User Avatar': 'Foydalanuvchi avatari tiklandi',
+    'Upload a VRM model to continue': 'Davom etish uchun VRM model yuklang',
+    'Initialization Failed': 'Ishga tushirish muvaffaqiyatsiz',
+  },
+  ru: {
+    'Booting Engine': 'Запуск движка',
+    'Preparing workspace': 'Подготовка рабочего пространства',
+    'Preparing managers': 'Подготовка менеджеров',
+    'Initializing client': 'Инициализация клиента',
+    'Reading Configuration': 'Чтение конфигурации',
+    'Resolving API and model settings': 'Определение настроек API и модели',
+    'Initializing Scene': 'Инициализация сцены',
+    'Setting up renderer and camera': 'Настройка рендера и камеры',
+    'Initializing Audio': 'Инициализация аудио',
+    'Preparing playback pipeline': 'Подготовка аудио-конвейера',
+    'Initializing Vision': 'Инициализация визуального модуля',
+    'Preparing camera and capture buffers': 'Подготовка камеры и буферов захвата',
+    'Loading Avatar': 'Загрузка аватара',
+    'Trying local model asset': 'Пробуем локальную модель',
+    'Local model unavailable, trying remote source':
+      'Локальная модель недоступна, пробуем удаленный источник',
+    'Avatar Loaded': 'Аватар загружен',
+    'Preparing animation system': 'Подготовка системы анимации',
+    'Loading Core Animation': 'Загрузка основных анимаций',
+    'Avatar Missing': 'Аватар не найден',
+    'Default model unavailable. Upload a .vrm file to continue':
+      'Модель по умолчанию недоступна. Загрузите .vrm файл для продолжения',
+    'Finalizing Scene': 'Финализация сцены',
+    'Starting render loop': 'Запуск цикла рендера',
+    'System Ready': 'Система готова',
+    'All subsystems online': 'Все подсистемы онлайн',
+    'Avatar online': 'Аватар онлайн',
+    'Restored User Avatar': 'Аватар пользователя восстановлен',
+    'Upload a VRM model to continue': 'Загрузите VRM модель для продолжения',
+    'Initialization Failed': 'Ошибка инициализации',
+  },
+})
+
+const localizeLoaderText = (value) => {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) return normalized
+  const lang = resolveLanguage(selectedLanguage.value)
+  return LOADER_TEXTS[lang]?.[normalized] || normalized
+}
+
 const updateLoadingState = (next = {}) => {
   const progress = Number.isFinite(next.progress) ? next.progress : loadingState.value.progress
   loadingState.value = {
     progress: Math.max(loadingState.value.progress, Math.min(100, Math.round(progress))),
-    stage: next.stage || loadingState.value.stage,
-    detail: next.detail ?? loadingState.value.detail,
+    stage: localizeLoaderText(next.stage || loadingState.value.stage),
+    detail:
+      next.detail === undefined || next.detail === null
+        ? localizeLoaderText(loadingState.value.detail)
+        : localizeLoaderText(next.detail),
   }
 }
 
@@ -551,8 +842,8 @@ onMounted(async () => {
     sys.visionManager.onStateChange = (isActive) => {
       isSharingScreen.value = isActive
       showToast(
-        'Screen Share',
-        isActive ? 'Screen sharing active' : 'Screen sharing stopped',
+        t('toasts.screenShareTitle'),
+        isActive ? t('toasts.screenShareActive') : t('toasts.screenShareStopped'),
         isActive ? 'success' : 'info',
       )
     }
@@ -604,7 +895,7 @@ onMounted(async () => {
             stage: 'System Ready',
             detail: 'Upload a VRM model to continue',
           })
-          showToast('Avatar Missing', 'Saved model not found. Upload a .vrm file.', 'info')
+          showToast(t('toasts.avatarMissingTitle'), t('toasts.avatarMissingSaved'), 'info')
         }
       } else {
         systemReady.value = true
@@ -613,13 +904,13 @@ onMounted(async () => {
           stage: 'System Ready',
           detail: 'Upload a VRM model to continue',
         })
-        showToast('Avatar Missing', 'Default model not found. Upload a .vrm file.', 'info')
+        showToast(t('toasts.avatarMissingTitle'), t('toasts.avatarMissingDefault'), 'info')
       }
     }
   } catch (error) {
     console.error(error)
     updateLoadingState({ progress: 100, stage: 'Initialization Failed', detail: error.message })
-    showToast('Initialization Failed', error.message, 'error')
+    showToast(t('toasts.initializationFailedTitle'), error.message, 'error')
   }
 
   fpsInterval = setInterval(() => {
@@ -635,7 +926,7 @@ onBeforeUnmount(() => {
 function showToast(title, message, type = 'info') {
   toastCounter += 1
   const id = toastCounter
-  const normalizedType = ['success', 'error', 'info'].includes(type) ? type : 'info'
+  const normalizedType = ['success', 'error', 'info', 'warning'].includes(type) ? type : 'info'
 
   toasts.value.push({
     id,
@@ -663,8 +954,8 @@ const trackReconnectIssue = () => {
   if (shouldShowHint) {
     lastReconnectHintAt = now
     showToast(
-      'Performance Tip',
-      'Frequent reconnects detected. Open chat and clear history to lighten the session.',
+      t('toasts.performanceTipTitle'),
+      t('toasts.performanceTipMessage'),
       'info',
     )
   }
@@ -698,7 +989,7 @@ const toggleConnection = async () => {
   if (isConnecting.value) return
 
   if (!system.value.vrm) {
-    showToast('No Avatar', 'Load a VRM model before connecting.', 'error')
+    showToast(t('toasts.noAvatarTitle'), t('toasts.noAvatarMessage'), 'error')
     return
   }
 
@@ -708,7 +999,7 @@ const toggleConnection = async () => {
     return
   }
 
-  showToast('Connecting', 'Establishing live voice session...', 'info')
+  showToast(t('toasts.connectingTitle'), t('toasts.connectingMessage'), 'info')
   isConnecting.value = true
 
   try {
@@ -745,7 +1036,7 @@ const toggleConnection = async () => {
         onDisconnect: (reason) => {
           isConnected.value = false
           trackReconnectIssue()
-          showToast('Call Ended', reason, 'info')
+          showToast(t('toasts.callEndedTitle'), reason, 'info')
         },
         onTranscription: (role, text, isFinal) => {
           const normalizedRole = role === 'user' ? 'user' : 'model'
@@ -822,13 +1113,14 @@ const toggleConnection = async () => {
         userName: (localStorage.getItem('vrm_user_name') || '').trim(),
       },
       selectedPersonaPrompt.value,
+      selectedLanguage.value,
     )
 
     isConnected.value = true
   } catch (error) {
     console.error(error)
     trackReconnectIssue()
-    showToast('Connection Failed', error.message, 'error')
+    showToast(t('toasts.connectionFailedTitle'), error.message, 'error')
     isConnected.value = false
   } finally {
     isConnecting.value = false
@@ -846,10 +1138,10 @@ const toggleScreenShare = async () => {
   try {
     const started = await system.value.startScreenShare()
     if (!started) {
-      showToast('Screen Share', 'Could not start screen sharing.', 'error')
+      showToast(t('toasts.screenShareTitle'), t('toasts.screenShareCouldNotStart'), 'error')
     }
   } catch {
-    showToast('Screen Share', 'Screen share permission was blocked.', 'error')
+    showToast(t('toasts.screenShareTitle'), t('toasts.screenSharePermissionBlocked'), 'error')
   }
 }
 
@@ -872,14 +1164,14 @@ const handlePersonaSelect = (personaId) => {
   if (!exists) return
   selectedPersonaId.value = personaId
   if (isConnected.value) {
-    showToast('Persona Queued', 'Disconnect and reconnect to apply the new persona.', 'info')
+    showToast(t('toasts.personaQueuedTitle'), t('toasts.personaQueuedMessage'), 'info')
   }
 }
 
 const handlePersonaCreate = (payload) => {
   const next = normalizePersonaPayload(payload)
   if (!next.title || !next.description || !next.prompt) {
-    showToast('Persona Error', 'Title, description, and prompt are required.', 'error')
+    showToast(t('toasts.personaErrorTitle'), t('toasts.personaRequiredFields'), 'error')
     return
   }
 
@@ -889,11 +1181,17 @@ const handlePersonaCreate = (payload) => {
     description: next.description,
     prompt: next.prompt,
     isDefault: false,
+    isBuiltin: false,
+    promptEnglish: '',
   }
 
   personas.value = [...personas.value, createdPersona]
   selectedPersonaId.value = createdPersona.id
-  showToast('Persona Added', `"${createdPersona.title}" is ready to use.`, 'success')
+  showToast(
+    t('toasts.personaAddedTitle'),
+    t('toasts.personaAddedMessage', { title: createdPersona.title }),
+    'success',
+  )
 }
 
 const handlePersonaUpdate = (payload) => {
@@ -902,10 +1200,11 @@ const handlePersonaUpdate = (payload) => {
 
   const index = personas.value.findIndex((persona) => persona.id === personaId)
   if (index < 0) return
+  if (personas.value[index]?.isBuiltin) return
 
   const next = normalizePersonaPayload(payload)
   if (!next.title || !next.description || !next.prompt) {
-    showToast('Persona Error', 'Title, description, and prompt are required.', 'error')
+    showToast(t('toasts.personaErrorTitle'), t('toasts.personaRequiredFields'), 'error')
     return
   }
 
@@ -916,9 +1215,15 @@ const handlePersonaUpdate = (payload) => {
     description: next.description,
     prompt: next.prompt,
     isDefault: false,
+    isBuiltin: false,
+    promptEnglish: '',
   }
   personas.value = updated
-  showToast('Persona Updated', `"${next.title}" saved.`, 'success')
+  showToast(
+    t('toasts.personaUpdatedTitle'),
+    t('toasts.personaUpdatedMessage', { title: next.title }),
+    'success',
+  )
 }
 
 const handlePersonaDelete = (personaId) => {
@@ -928,8 +1233,9 @@ const handlePersonaDelete = (personaId) => {
 
   const target = personas.value.find((persona) => persona.id === personaId)
   if (!target) return
+  if (target.isBuiltin) return
 
-  if (!confirm(`Delete persona "${target.title}"?`)) return
+  if (!confirm(t('toasts.personaDeleteConfirm', { title: target.title }))) return
 
   personas.value = personas.value.filter((persona) => persona.id !== personaId)
 
@@ -937,7 +1243,11 @@ const handlePersonaDelete = (personaId) => {
     selectedPersonaId.value = DEFAULT_PERSONA_ID
   }
 
-  showToast('Persona Deleted', `"${target.title}" removed.`, 'success')
+  showToast(
+    t('toasts.personaDeletedTitle'),
+    t('toasts.personaDeletedMessage', { title: target.title }),
+    'success',
+  )
 }
 
 const handleDrag = (event) => {
@@ -999,26 +1309,26 @@ const handleModelSwitch = async (modelKey) => {
     return
   }
 
-  showToast('Switching Avatar', 'Loading cached model...', 'info')
+  showToast(t('toasts.switchingAvatarTitle'), t('toasts.switchingAvatarMessage'), 'info')
   try {
     // Pass the key. vrmLoader will try cache first.
     // If it's a "user" model, the key was used as the cache key.
     await system.value.loadNewVRM(modelKey)
     selectedModelKey.value = modelKey
     localStorage.setItem('vrm_selected_model_key', modelKey)
-    showToast('Avatar Updated', 'Model loaded from cache.', 'success')
+    showToast(t('toasts.avatarUpdatedTitle'), t('toasts.avatarLoadedFromCache'), 'success')
   } catch (error) {
     console.error(error)
-    showToast('Load Failed', 'Could not load cached model.', 'error')
+    showToast(t('toasts.loadFailedTitle'), t('toasts.cachedModelLoadFailed'), 'error')
   }
 }
 
 const handleModelDelete = async (modelKey) => {
   if (!system.value || !modelKey) return
-  if (confirm('Are you sure you want to delete this model?')) {
+  if (confirm(t('toasts.modelDeleteConfirm'))) {
     try {
       await system.value.deleteModel(modelKey)
-      showToast('Deleted', 'Model removed from cache.', 'success')
+      showToast(t('toasts.modelDeletedTitle'), t('toasts.modelDeletedMessage'), 'success')
       // If deleted model was selected, revert preference?
       if (selectedModelKey.value === modelKey) {
         selectedModelKey.value = null
@@ -1026,18 +1336,22 @@ const handleModelDelete = async (modelKey) => {
       }
       await refreshModels()
     } catch {
-      showToast('Error', 'Failed to delete model.', 'error')
+      showToast(t('toasts.errorTitle'), t('toasts.modelDeleteFailed'), 'error')
     }
   }
 }
 
 const loadVRMFile = async (file, isUrl = false) => {
   if (!isUrl && !file.name.toLowerCase().endsWith('.vrm')) {
-    showToast('Invalid File', 'Please upload a .vrm file.', 'error')
+    showToast(t('toasts.invalidFileTitle'), t('toasts.invalidFileMessage'), 'error')
     return
   }
 
-  showToast('Loading Avatar', `Processing ${file.name || 'default model'}...`, 'info')
+  showToast(
+    t('toasts.loadingAvatarTitle'),
+    t('toasts.loadingAvatarMessage', { fileName: file.name || t('settings.defaultRiko') }),
+    'info',
+  )
   try {
     // If uploading a new user file, DELETE ALL OLD USER MODELS FIRST
     if (!isUrl && system.value?.cacheManager) {
@@ -1067,7 +1381,7 @@ const loadVRMFile = async (file, isUrl = false) => {
       // However, since we are sorting by date, the newest one is likely the one we just added.
       await system.value?.loadNewVRM(file)
     }
-    showToast('Avatar Updated', 'New model loaded successfully.', 'success')
+    showToast(t('toasts.avatarUpdatedTitle'), t('toasts.newAvatarLoaded'), 'success')
     await refreshModels()
 
     // Auto-select the newest if it was a file upload (implies user wants it)
@@ -1081,7 +1395,7 @@ const loadVRMFile = async (file, isUrl = false) => {
       }
     }
   } catch {
-    showToast('Load Failed', 'Could not load this VRM file.', 'error')
+    showToast(t('toasts.loadFailedTitle'), t('toasts.vrmLoadFailed'), 'error')
   }
 }
 </script>

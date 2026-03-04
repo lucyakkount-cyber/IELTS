@@ -10,7 +10,7 @@
           class="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse"
         ></span>
         <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-cyan-100/80">
-          Conversation Log ({{ chatHistory.length }})
+          {{ translate('chat.conversationLog', { count: chatHistory.length }) }}
         </p>
       </div>
       <div class="flex items-center gap-3">
@@ -18,7 +18,7 @@
           class="text-[10px] font-mono uppercase tracking-[0.14em] text-cyan-500/50 transition-colors hover:text-rose-400"
           @click="$emit('clear-history')"
         >
-          Clear
+          {{ translate('chat.clear') }}
         </button>
         <button class="text-white/30 transition-colors hover:text-white" @click="$emit('close')">
           <XMarkIcon class="h-4 w-4" />
@@ -35,7 +35,7 @@
         class="flex h-full flex-col items-center justify-center gap-2 text-white/20"
       >
         <ChatBubbleLeftRightIcon class="h-8 w-8 opacity-40" />
-        <p class="text-xs font-mono uppercase tracking-[0.16em]">No messages yet</p>
+        <p class="text-xs font-mono uppercase tracking-[0.16em]">{{ translate('chat.noMessagesYet') }}</p>
       </div>
 
       <div
@@ -59,7 +59,7 @@
             class="text-[10px] font-mono uppercase tracking-[0.14em]"
             :class="msg.role === 'user' ? 'text-cyan-400' : 'text-purple-400'"
           >
-            {{ msg.role === 'user' ? 'You' : 'Riko' }}
+            {{ msg.role === 'user' ? translate('chat.you') : translate('chat.assistant') }}
           </span>
           <span class="text-[10px] text-white/20">·</span>
           <span class="text-[10px] font-mono text-white/30">
@@ -74,20 +74,26 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
 import { ChatBubbleLeftRightIcon, XMarkIcon } from '@heroicons/vue/24/solid'
+import { getLocaleForLanguage, translateUi } from '../i18n/ui.js'
 
 const props = defineProps({
   chatHistory: {
     type: Array,
     default: () => [],
   },
+  language: {
+    type: String,
+    default: 'en',
+  },
 })
 
 defineEmits(['clear-history', 'close'])
 
 const chatContainerRef = ref(null)
+const translate = (key, params = {}) => translateUi(props.language, key, params)
 
 const formatTime = (timestamp) => {
-  return new Date(timestamp).toLocaleTimeString([], {
+  return new Date(timestamp).toLocaleTimeString(getLocaleForLanguage(props.language), {
     hour: '2-digit',
     minute: '2-digit',
   })

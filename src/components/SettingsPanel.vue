@@ -8,7 +8,7 @@
           class="h-1.5 w-1.5 rounded-full bg-cyan-400 font-bold shadow-[0_0_12px_rgba(34,211,238,0.8)] animate-pulse"
         ></div>
         <p class="text-[11px] font-mono uppercase tracking-[0.2em] text-cyan-100/90 text-shadow-sm">
-          System Control
+          {{ translate('settings.systemControl') }}
         </p>
       </div>
       <button
@@ -22,7 +22,7 @@
     <div class="space-y-6">
       <div class="space-y-3">
         <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
-          Identity Matrix
+          {{ translate('settings.identityMatrix') }}
         </p>
 
         <div class="space-y-2 max-h-[160px] overflow-y-auto pr-1 no-scrollbar">
@@ -40,10 +40,10 @@
                 <p
                   class="text-xs font-semibold text-white/90 group-hover:text-cyan-100 transition-colors"
                 >
-                  Default Riko
+                  {{ translate('settings.defaultRiko') }}
                 </p>
                 <p class="text-[10px] text-white/40 group-hover:text-cyan-200/50 transition-colors">
-                  System Model
+                  {{ translate('settings.systemModel') }}
                 </p>
               </div>
             </div>
@@ -65,7 +65,7 @@
                 <p
                   class="truncate text-xs font-semibold text-white/90 group-hover:text-cyan-100 transition-colors"
                 >
-                  {{ model.meta?.name || 'Unknown Model' }}
+                  {{ model.meta?.name || translate('settings.unknownModel') }}
                 </p>
                 <p class="text-[10px] text-white/40 group-hover:text-cyan-200/50 transition-colors">
                   {{ formatTimeAgo(model.meta?.date) }}
@@ -86,14 +86,14 @@
       <div class="space-y-3 pt-4 border-t border-white/5">
         <div class="flex items-center justify-between">
           <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
-            AI Persona
+            {{ translate('settings.aiPersona') }}
           </p>
           <button
             class="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-mono uppercase tracking-[0.12em] text-cyan-200 transition hover:bg-cyan-500/20"
             @click="$emit('open-persona-manager')"
           >
             <PencilSquareIcon class="h-3.5 w-3.5" />
-            Edit Personas
+            {{ translate('settings.editPersonas') }}
           </button>
         </div>
 
@@ -103,7 +103,7 @@
             <p class="text-xs font-semibold text-white/90 truncate">{{ activePersonaTitle }}</p>
           </div>
           <p class="mt-1 text-[10px] leading-relaxed text-white/50">
-            {{ activePersonaDescription || 'Original Riko personality used by the app.' }}
+            {{ activePersonaDescription || translate('settings.defaultPersonaDescription') }}
           </p>
         </div>
       </div>
@@ -111,7 +111,32 @@
       <div class="space-y-3 pt-4 border-t border-white/5">
         <div class="flex items-center justify-between">
           <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
-            Projection Scale
+            {{ translate('settings.languageMode') }}
+          </p>
+          <div
+            class="rounded bg-cyan-950/50 border border-cyan-500/20 px-2 py-0.5 text-[10px] font-mono text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.1)]"
+          >
+            {{ translate('settings.languageHint') }}
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/35 px-3 py-2.5">
+          <select
+            :value="props.selectedLanguage"
+            class="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-xs text-white outline-none transition focus:border-cyan-400/60"
+            @change="handleLanguageChange"
+          >
+            <option v-for="option in props.languageOptions" :key="option.code" :value="option.code">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="space-y-3 pt-4 border-t border-white/5">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
+            {{ translate('settings.projectionScale') }}
           </p>
           <div
             class="rounded bg-cyan-950/50 border border-cyan-500/20 px-2 py-0.5 text-[10px] font-mono text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.1)]"
@@ -136,7 +161,7 @@
       <div class="space-y-3 pt-4 border-t border-white/5">
         <div class="flex items-center justify-between">
           <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
-            Background Color
+            {{ translate('settings.backgroundColor') }}
           </p>
           <div
             class="rounded bg-cyan-950/50 border border-cyan-500/20 px-2 py-0.5 text-[10px] font-mono text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.1)]"
@@ -165,7 +190,7 @@
 
       <div class="space-y-3 pt-4 border-t border-white/5">
         <p class="text-[10px] font-mono uppercase tracking-[0.15em] text-cyan-500/50 ml-1">
-          Vision Sensors
+          {{ translate('settings.visionSensors') }}
         </p>
 
         <div class="flex gap-2">
@@ -203,7 +228,7 @@
                 class="text-xs font-medium tracking-wide"
                 :class="props.lookAtUserEnabled ? 'text-cyan-100' : 'text-white/30'"
               >
-                Face Track
+                {{ translate('settings.faceTrack') }}
               </p>
             </div>
           </button>
@@ -246,7 +271,7 @@
                 class="text-xs font-medium tracking-wide"
                 :class="props.lookAtScreenEnabled ? 'text-purple-100' : 'text-white/30'"
               >
-                Screen Sense
+                {{ translate('settings.screenSense') }}
               </p>
             </div>
           </button>
@@ -269,6 +294,7 @@ import {
   UserCircleIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/solid'
+import { getLocaleForLanguage, translateUi } from '../i18n/ui.js'
 
 const props = defineProps({
   avatarScale: {
@@ -293,11 +319,23 @@ const props = defineProps({
   },
   activePersonaTitle: {
     type: String,
-    default: 'Default Riko',
+    default: '',
   },
   activePersonaDescription: {
     type: String,
     default: '',
+  },
+  selectedLanguage: {
+    type: String,
+    default: 'en',
+  },
+  languageOptions: {
+    type: Array,
+    default: () => [],
+  },
+  language: {
+    type: String,
+    default: 'en',
   },
 })
 
@@ -310,7 +348,10 @@ const emit = defineEmits([
   'switch-model',
   'delete-model',
   'open-persona-manager',
+  'update:selectedLanguage',
 ])
+
+const translate = (key, params = {}) => translateUi(props.language, key, params)
 
 const handleScaleChange = (event) => {
   emit('update:avatarScale', parseFloat(event.target.value))
@@ -328,6 +369,12 @@ const handleBackgroundColorChange = (event) => {
   emit('update:backgroundColor', normalized)
 }
 
+const handleLanguageChange = (event) => {
+  const nextValue = String(event?.target?.value || '').trim().toLowerCase()
+  if (!nextValue) return
+  emit('update:selectedLanguage', nextValue)
+}
+
 const toggleLookAtUser = () => {
   emit('update:lookAtUserEnabled', !props.lookAtUserEnabled)
 }
@@ -337,26 +384,30 @@ const toggleLookAtScreen = () => {
 }
 
 const formatTimeAgo = (timestamp) => {
-  if (!timestamp) return 'Unknown date'
+  if (!timestamp) return translate('settings.unknownDate')
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
 
-  const intervals = {
-    year: 31536000,
-    month: 2592000,
-    day: 86400,
-    hour: 3600,
-    minute: 60,
-  }
+  if (seconds < 60) return translate('settings.justNow')
 
-  if (seconds < 60) return 'Just now'
+  const intervals = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ]
 
-  for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+  const locale = getLocaleForLanguage(props.language)
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'always' })
+
+  for (const [unit, secondsInUnit] of intervals) {
     const interval = Math.floor(seconds / secondsInUnit)
     if (interval >= 1) {
-      return `Cached ${interval} ${unit}${interval === 1 ? '' : 's'} ago`
+      const relative = formatter.format(-interval, unit)
+      return translate('settings.cachedAgo', { relative })
     }
   }
-  return 'Just now'
+  return translate('settings.justNow')
 }
 </script>
 

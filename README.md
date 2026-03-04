@@ -1,86 +1,14 @@
-# 🌌 QUANTUM VRM: Next-Gen AI Avatar System
+# Quantum VRM Documentation
 
-> **"Reality is just a suggestion."**
+Choose your documentation language:
 
-A state-of-the-art interactive 3D Avatar system powered by Google Gemini 2.0 Flash. Featuring real-time voice interaction, emotional intelligence, and a high-fidelity "Quantum" aesthetic.
+- English: [README.en.md](./README.en.md)
+- Uzbek: [README.uz.md](./README.uz.md)
 
-![Version](https://img.shields.io/badge/version-2.0.0_Ultimate-cyan)
-![Status](https://img.shields.io/badge/status-Stable-emerald)
-![Engine](https://img.shields.io/badge/engine-Three.js_r160-white)
+Both files include:
 
-## Hackathon Project Idea (English)
-
-**Short project idea:** We are building a real-time AI avatar assistant that can talk, understand emotions, react with expressions and animations, and improve safe human-AI interaction.
-
-**Problem we want to solve on hackathon day:** Most AI chat tools are text-heavy and emotionally flat, and they often do not provide strong real-time safety response when user behavior becomes threatening.
-
-**Proposed solution:**
-- Use a live 3D VRM avatar with voice conversation to make communication natural and engaging.
-- Add dynamic facial and body reactions so the assistant behavior matches the context.
-- Integrate a safety pipeline that detects threats, captures evidence, and sends a Telegram report for fast moderation.
-- Keep the system practical with model and animation optimization for fast loading and stable long sessions.
-
-## ✨ Key Features
-
-### 🧠 **Neural "Rico" Persona**
-
-- **Personality**: Sassy, high-energy, and business-minded. Rico isn't just an assistant; she's a "Cyber-Hustler" who demands tribute and roasts bad ideas.
-- **Dynamic Response**: Responses are short, punchy, and emotionally charged.
-- **Memory Core**: Remembers user details and past conversations across sessions.
-
-### 🎨 **Quantum Visual Engine (v3)**
-
-- **Holographic Environment**: Dual infinite grids (Floor & Ceiling) with a rotating vertical hyper-scanner.
-- **VFX Layer**: "Digital Rain" particle system, chromatic aberration, and film grain for a cinematic look.
-- **Audio Visualizer**: Simulated EQ bars that react to system states.
-- **Glassmorphism UI**: Premium dark-mode interface with "liquid glass" settings panels.
-
-### 🎭 **Advanced Expression Engine**
-
-- **Deep Emotion**: Expressions now have variable duration (3s - 10s) for lingering moods.
-- **Micro-Expressions**: Subtle eye twitches and blinks to simulate life even when idle.
-- **Full Range**: Supports a wide array of emotions: `smug`, `bored`, `disgust`, `excited`, `thinking`, and more.
-
-### ⚡ **Performance Optimized**
-
-- **Smart Caching**: VRM models and animations are cached in IndexedDB for instant loads.
-- **Memory Management**: Aggressive garbage collection and resource disposal to prevent leaks during long sessions.
-- **Dynamic Imports**: Code splitting ensures faster initial page loads.
-
-### 🛡️ **Safety Layer**
-
-- **Behavioral Reporting**: Integrated system to flag unsafe or inappropriate interactions for review.
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- Google Gemini API Key
-
-## 🎮 Controls
-
-- **Microphone**: Click the connection toggle to start a live voice session.
-- **Camera**: Toggle vision to let Rico "see" you (Face tracking enabled).
-- **Screen Share**: Show your screen for analysis.
-- **Drag & Drop**: Drag any `.vrm` file into the window to swap your avatar instantly.
-
-## New Functions (Latest Update)
-
-### AnimationManager updates
-
-- `getAnimationCatalog()` returns the full built-in animation list with names, paths, and loop settings.
-- `loadAnimationFile(file)` loads one animation with local-first plus remote fallback support.
-- `loadAnimationBatch(files, { onProgress, continueOnError })` loads multiple clips with progress callbacks.
-- `startBackgroundAnimationLoad({ onProgress })` preloads remaining animations in the background.
-- `initialize({ initialAnimations, loadRemainingInBackground, onBackgroundProgress })` supports staged startup loading.
-- `triggerNamedAnimation(name)` now supports case-insensitive lookup and lazy loading from the catalog.
-- `loadClipWithFallback(name, localPath, remoteUrl, isLoop)` retries animation loading from a backup source.
-
-### Telegram relay updates
-
-- `relayTelegramMethod(req, res, methodName)` now forwards both `GET` and `POST` Telegram Bot API calls.
-- `buildQueryString(query)` serializes query params (including arrays) for Telegram `GET` methods.
-- `readRequestBody(req)` safely forwards raw request payloads for multipart form-data and JSON requests.
-
----
+- setup and run instructions
+- testing workflow
+- animation management guide
+- persona and language behavior notes
+- safety notes (without destructive Telegram bot operations)

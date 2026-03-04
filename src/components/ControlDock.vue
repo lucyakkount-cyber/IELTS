@@ -17,13 +17,13 @@
         class="dock-btn group relative flex h-10 w-10 items-center justify-center rounded-xl bg-white/5 text-white/40 transition-all hover:bg-white/10 hover:text-white"
         :class="!isReady ? 'opacity-50 cursor-not-allowed' : ''"
         :disabled="!isReady"
-        title="Upload avatar"
+        :title="translate('dock.uploadAvatarTitle')"
         @click="openFilePicker"
       >
         <ArrowUpTrayIcon class="h-5 w-5" />
         <span
           class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-          >Upload</span
+          >{{ translate('dock.upload') }}</span
         >
       </button>
 
@@ -34,26 +34,34 @@
             ? 'bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
             : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
         "
-        title="Toggle screen share"
+        :title="translate('dock.toggleScreenShareTitle')"
         @click="$emit('toggle-screen-share')"
       >
         <ComputerDesktopIcon class="h-5 w-5" />
         <span
           class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-          >Screen</span
+          >{{ translate('dock.screen') }}</span
         >
       </button>
 
       <button
         class="dock-call group relative flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all duration-300"
         :class="[
-          !isReady || isConnecting ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/5' : '',
+          !isReady || isConnecting
+            ? 'opacity-50 cursor-not-allowed border-white/5 bg-white/5'
+            : '',
           isConnected
             ? 'border-rose-500/50 bg-rose-500/20 text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.4)] hover:bg-rose-500/30'
             : 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:bg-emerald-500/30',
         ]"
         :disabled="!isReady || isConnecting"
-        :title="isConnecting ? 'Connecting...' : isConnected ? 'Disconnect' : 'Connect'"
+        :title="
+          isConnecting
+            ? translate('dock.connecting')
+            : isConnected
+              ? translate('dock.disconnect')
+              : translate('dock.connect')
+        "
         @click="$emit('toggle-connection')"
       >
         <PhoneXMarkIcon v-if="isConnected" class="h-6 w-6" />
@@ -67,13 +75,13 @@
             ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.3)]'
             : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
         "
-        title="Toggle chat"
+        :title="translate('dock.toggleChatTitle')"
         @click="$emit('toggle-chat')"
       >
         <ChatBubbleLeftRightIcon class="h-5 w-5" />
         <span
           class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-          >Chat</span
+          >{{ translate('dock.chat') }}</span
         >
       </button>
 
@@ -84,13 +92,13 @@
             ? 'bg-cyan-500/20 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.3)]'
             : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
         "
-        title="Settings"
+        :title="translate('dock.settingsTitle')"
         @click="$emit('toggle-settings')"
       >
         <Cog6ToothIcon class="h-5 w-5" />
         <span
           class="absolute -top-10 left-1/2 -translate-x-1/2 rounded bg-black/90 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
-          >Settings</span
+          >{{ translate('dock.settings') }}</span
         >
       </button>
     </div>
@@ -107,8 +115,9 @@ import {
   MicrophoneIcon,
   PhoneXMarkIcon,
 } from '@heroicons/vue/24/solid'
+import { translateUi } from '../i18n/ui.js'
 
-defineProps({
+const props = defineProps({
   isReady: {
     type: Boolean,
     default: false,
@@ -121,6 +130,10 @@ defineProps({
   isSharingScreen: Boolean,
   showChat: Boolean,
   showSettings: Boolean,
+  language: {
+    type: String,
+    default: 'en',
+  },
 })
 
 const emit = defineEmits([
@@ -132,6 +145,7 @@ const emit = defineEmits([
 ])
 
 const fileInputRef = ref(null)
+const translate = (key, params = {}) => translateUi(props.language, key, params)
 
 const openFilePicker = () => {
   if (fileInputRef.value) {

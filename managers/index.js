@@ -8,6 +8,7 @@ import { ConfigManager } from './configManager.js'
 import { VisionManager } from './visionManager.js'
 import { TelegramManager } from './telegramManager.js'
 import { cacheManager } from './cacheManager.js'
+import { buildAiLanguagePreferenceInstruction, resolveLanguage } from '../src/i18n/ui.js'
 
 export async function createVRMChatSystem(canvas, options = {}) {
   const { onLoadProgress, debugIdentity = null } = options
@@ -306,6 +307,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
       userName = null,
       identity = null,
       personaPrompt = '',
+      preferredLanguage = 'en',
     ) {
       const safeHistory = Array.isArray(history) ? history : []
       const normalizedUserName = typeof userName === 'string' ? userName.trim() : ''
@@ -419,6 +421,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
 
       const availableAnims = animationManager.getAvailableAnimations()
       const normalizedPersonaPrompt = typeof personaPrompt === 'string' ? personaPrompt.trim() : ''
+      const normalizedPreferredLanguage = resolveLanguage(preferredLanguage)
       const globalAnimationCommand =
         'GLOBAL COMMAND (all personas): Use expressive tools in almost every reply. ' +
         'Call set_expression on nearly every turn (target 9/10) and trigger_animation on most turns when context allows (target 7/10). ' +
@@ -479,6 +482,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
         systemPrompt = normalizedPersonaPrompt
       }
       systemPrompt += ` ${globalAnimationCommand}`
+      systemPrompt += ` ${buildAiLanguagePreferenceInstruction(normalizedPreferredLanguage)}`
 
       if (lookAtOptions.user && lookAtOptions.screen) {
         systemPrompt +=
