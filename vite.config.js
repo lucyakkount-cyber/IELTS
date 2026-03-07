@@ -7,7 +7,6 @@ import path from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import basicSsl from '@vitejs/plugin-basic-ssl' // <--- IMPORT THIS
-import { keyObfuscatePlugin } from './vite-plugin-key-obfuscate.js'
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 const ALLOWED_TELEGRAM_METHODS = new Set([
@@ -145,7 +144,6 @@ export default defineConfig(({ mode }) => {
       vue(),
       basicSsl(), // <--- ADD THIS
       createTelegramRelayPlugin(telegramBotToken),
-      keyObfuscatePlugin(), // Splits + base64-encodes VITE_API_KEY into 4 chunk vars
     ],
     build: {
       chunkSizeWarningLimit: 600,

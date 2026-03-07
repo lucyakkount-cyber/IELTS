@@ -52,10 +52,7 @@ export class AIClient {
   maxInternalHistoryItems = 180
 
   constructor(apiKey, model) {
-    // Prevent immediate crash if API key is missing.
-    // We use a placeholder that will fail gracefully during 'connect', not construction.
-    const safeKey = apiKey || 'dummy_key_placeholder'
-    this.client = new GoogleGenAI({ apiKey: safeKey })
+    this.client = new GoogleGenAI({ apiKey: apiKey })
     this.liveModel = model
   }
 
