@@ -787,7 +787,9 @@ export class AnimationManager {
     }
 
     // 3. Lazy-load from catalog for cold-start cases (e.g. cutthroat before preload ends)
-    const catalogMatch = this.getAnimationCatalog().find((file) => file.name.toLowerCase() === lowerName)
+    const catalogMatch = this.getAnimationCatalog().find(
+      (file) => file.name.toLowerCase() === lowerName,
+    )
     if (catalogMatch) {
       void this.loadAnimationFile(catalogMatch)
         .then(() => {

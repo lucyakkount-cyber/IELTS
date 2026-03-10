@@ -230,7 +230,9 @@ const languageOptions = computed(() =>
   })),
 )
 const chatHistory = ref([])
-const MAX_CHAT_HISTORY_ITEMS = 120
+const activeUserTranscriptEntryId = ref(null)
+const activeModelTranscriptEntryId = ref(null)
+const MAX_CHAT_HISTORY_ITEMS = 12000
 const DEBUG_USER_ID_STORAGE_KEY = 'vrm_debug_user_id'
 const ASSISTANT_ACTOR_ID = 'assistant-riko'
 const RECONNECT_WINDOW_MS = 180000
@@ -532,6 +534,56 @@ const createHistoryEntry = (role, text, overrides = {}) => {
         ? overrides.sessionId
         : sessionDebugId.value,
   }
+}
+
+const findHistoryEntryIndexById = (items, entryId) => {
+  const normalizedEntryId = typeof entryId === 'string' ? entryId.trim() : ''
+  if (!normalizedEntryId || !Array.isArray(items)) return -1
+  return items.findIndex((item) => item?.id === normalizedEntryId)
+}
+
+const updateHistoryEntryText = (entry, role, text) => {
+  const normalizedRole = role === 'user' ? 'user' : 'model'
+  entry.role = normalizedRole
+  entry.text = text
+  entry.timestamp = Date.now()
+  if (!entry.id) entry.id = createDebugId('msg')
+  if (!entry.actorId) {
+    entry.actorId = normalizedRole === 'user' ? userDebugId.value : ASSISTANT_ACTOR_ID
+  }
+  if (!entry.userId) entry.userId = userDebugId.value
+  if (!entry.sessionId) entry.sessionId = sessionDebugId.value
+  return entry
+}
+
+const upsertGeminiTranscriptHistory = (items, role, text, isFinal) => {
+  const normalizedRole = role === 'user' ? 'user' : 'model'
+  const activeEntryIdRef =
+    normalizedRole === 'user' ? activeUserTranscriptEntryId : activeModelTranscriptEntryId
+
+  let entryIndex = findHistoryEntryIndexById(items, activeEntryIdRef.value)
+  if (entryIndex < 0) {
+    const lastMsg = items[items.length - 1]
+    if (normalizedRole === 'user' && lastMsg?.role === normalizedRole) {
+      entryIndex = items.length - 1
+    }
+  }
+
+  if (entryIndex < 0) {
+    const entry = createHistoryEntry(normalizedRole, text)
+    items.push(entry)
+    activeEntryIdRef.value = entry.id
+  } else {
+    const entry = items[entryIndex]
+    updateHistoryEntryText(entry, normalizedRole, text)
+    activeEntryIdRef.value = entry.id
+  }
+
+  if (isFinal) {
+    activeEntryIdRef.value = null
+  }
+
+  return trimHistory(items)
 }
 
 const normalizeStoredHistory = (items) => {
@@ -1031,14 +1083,27 @@ const toggleConnection = async () => {
           }
         },
         onDisconnect: (reason) => {
+          activeUserTranscriptEntryId.value = null
+          activeModelTranscriptEntryId.value = null
           isConnected.value = false
           trackReconnectIssue()
           showToast(t('toasts.callEndedTitle'), reason, 'info')
         },
-        onTranscription: (role, text, isFinal) => {
+        onTranscription: (role, text, isFinal, meta = {}) => {
           const normalizedRole = role === 'user' ? 'user' : 'model'
           const normalizedText = sanitizeTranscriptText(text)
           if (!normalizedText) return
+
+          const transcriptionSource = typeof meta?.source === 'string' ? meta.source : ''
+          if (transcriptionSource === 'gemini_input' || transcriptionSource === 'gemini_output') {
+            chatHistory.value = upsertGeminiTranscriptHistory(
+              [...chatHistory.value],
+              normalizedRole,
+              normalizedText,
+              isFinal,
+            )
+            return
+          }
 
           const newHistory = [...chatHistory.value]
           const lastMsg = newHistory[newHistory.length - 1]
@@ -1143,6 +1208,9 @@ const toggleScreenShare = async () => {
 }
 
 const clearHistory = () => {
+  activeUserTranscriptEntryId.value = null
+  activeModelTranscriptEntryId.value = null
+  system.value?.aiClient?.clearSessionResumption?.()
   chatHistory.value = []
   localStorage.removeItem('vrm_chat_history')
 }

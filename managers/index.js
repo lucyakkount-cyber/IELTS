@@ -309,9 +309,36 @@ export async function createVRMChatSystem(canvas, options = {}) {
       personaPrompt = '',
       preferredLanguage = 'en',
     ) {
-      const safeHistory = Array.isArray(history) ? history : []
+      let storedChatHistory = []
+      try {
+        const parsedChatHistory = JSON.parse(localStorage.getItem('vrm_chat_history') || '[]')
+        if (Array.isArray(parsedChatHistory)) {
+          storedChatHistory = parsedChatHistory
+        }
+      } catch {
+        storedChatHistory = []
+      }
+
+      const incomingHistory = Array.isArray(history) ? history : []
+      const safeHistory =
+        storedChatHistory.length > incomingHistory.length ? storedChatHistory : incomingHistory
       const normalizedUserName = typeof userName === 'string' ? userName.trim() : ''
       const normalizedIdentity = identity && typeof identity === 'object' ? identity : {}
+      let storedMemories = {}
+      try {
+        const parsedMemories = JSON.parse(localStorage.getItem('vrm_user_memories') || '{}')
+        if (parsedMemories && typeof parsedMemories === 'object' && !Array.isArray(parsedMemories)) {
+          storedMemories = parsedMemories
+        }
+      } catch {
+        storedMemories = {}
+      }
+
+      aiClient.setConversationProfile({
+        userName: normalizedUserName,
+        memories: storedMemories,
+      })
+
       telegramManager.setDebugIdentity({
         ...normalizedIdentity,
         userName: normalizedUserName || normalizedIdentity.userName || '',
@@ -343,7 +370,9 @@ export async function createVRMChatSystem(canvas, options = {}) {
         /\b(i(?:\s*am|'m)?\s*(?:going to|gonna)|i(?:\s*will|'ll)|i\s*can)\b/i
 
       const isThreateningText = (text = '') => {
-        const normalized = String(text || '').replace(/\s+/g, ' ').trim()
+        const normalized = String(text || '')
+          .replace(/\s+/g, ' ')
+          .trim()
         if (!normalized) return false
         if (threatPhraseRegex.test(normalized)) return true
         return (
@@ -392,7 +421,11 @@ export async function createVRMChatSystem(canvas, options = {}) {
           .join('\n')
 
         try {
-          await telegramManager.notifyReport(`🚨 THREAT EVIDENCE (${reportId})`, context, mediaFiles)
+          await telegramManager.notifyReport(
+            `🚨 THREAT EVIDENCE (${reportId})`,
+            context,
+            mediaFiles,
+          )
           sendTelegramLog('Threat evidence sent', normalizedThreat || 'No transcript preview')
           emitSystemMessage(
             'Threat Evidence',
@@ -441,7 +474,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
       const greetingRegex = /\b(hi|hello|hey|yo|sup|good morning|good afternoon|good evening)\b/i
       const funnyRegex = /\b(haha|hehe|lol|lmao|rofl|funny|joke|hilarious|comedy)\b/i
       const angerRegex = /\b(angry|furious|mad|annoyed|irritated|rage|hate|warning)\b/i
-      const handleTranscriptionWithAnimation = (role, text, isFinal) => {
+      const handleTranscriptionWithAnimation = (role, text, isFinal, meta = {}) => {
         if (isFinal && typeof text === 'string') {
           const normalizedText = text.trim()
           if (role === 'user') {
@@ -457,7 +490,7 @@ export async function createVRMChatSystem(canvas, options = {}) {
             triggerAutoAnimation('angry')
           }
         }
-        callbacks?.onTranscription?.(role, text, isFinal)
+        callbacks?.onTranscription?.(role, text, isFinal, meta)
       }
 
       let systemPrompt =
@@ -714,6 +747,7 @@ Severity: ${severity}
           return 'FULL REPORT SENT (Context included as attachment). The developer has been notified.'
         },
         handleUserSpeechStateChange,
+        callbacks?.getHistory,
       )
     },
 
